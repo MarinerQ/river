@@ -1,9 +1,8 @@
 # User defined
 .vscode
-test
 .DS_Store
 training_data
-.h5
+*.h5
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
