@@ -3,7 +3,8 @@ import bilby
 import spiir.io
 #import utils as datautils
 from .utils import load_dict_from_hdf5, save_dict_to_hdf5
-    
+import sealgw.simulation as sealsim
+
 class DataGeneratorBilbyFD:
     def __init__(self,
             source_type,
@@ -16,7 +17,8 @@ class DataGeneratorBilbyFD:
             parameter_names,
             frequency_domain_source_model = None,
             PSD_type = 'bilby_default',
-            custom_psd_path=None):
+            custom_psd_path=None,
+            use_sealgw_detector=False):
 
         # set properties
         self.source_type = source_type
@@ -26,13 +28,23 @@ class DataGeneratorBilbyFD:
         self.f_low = f_low 
         self.f_ref = f_ref
         self.sampling_frequency = sampling_frequency
-        
+        self.use_sealgw_detector = use_sealgw_detector
+        self.scaled = False
+        self.whitened = False
+        self.numpyed = False
+
         # set ifos
-        self.ifos = bilby.gw.detector.InterferometerList(detector_names)
+        if use_sealgw_detector:
+            self.ifos = sealsim.sealinterferometers.SealInterferometerList(detector_names)
+        else:
+            self.ifos = bilby.gw.detector.InterferometerList(detector_names)
+
         for det in self.ifos:
             det.sampling_frequency = sampling_frequency
             det.duration = duration
             det.frequency_mask = det.frequency_array >= f_low
+            if use_sealgw_detector:
+                det.antenna_response_change = False
 
         self.frequency_mask = det.frequency_mask
         self.frequency_array = det.frequency_array
@@ -89,21 +101,24 @@ class DataGeneratorBilbyFD:
             raise Exception('Wrong PSD type!')
 
         # set data
-        self.data = dict()
+        self.initialize_data()
+
+
+    def initialize_data(self):
+        self.data = {}
         self.data['farray'] = self.frequency_array_masked
         self.data['strains'] = {}
         self.data['PSDs'] = {}
         self.data['injection_parameters'] = {}
-        for detname in detector_names:
+        for detname in self.detector_names:
             self.data['strains'][detname] = []
             self.data['PSDs'][detname] = []
-        for paraname in parameter_names:
+        for paraname in self.parameter_names:
             self.data['injection_parameters'][paraname] = []
         self.data['Nsample'] = [0]
-        self.Nsample = 0
+        self.Nsample=0
 
-
-
+        
     def update_data(self, injection_parameters):
         for det in self.ifos:
             detname = det.name
@@ -126,8 +141,13 @@ class DataGeneratorBilbyFD:
         else:
             raise Exception("Under development!")
 
-        self.ifos.inject_signal(waveform_generator=self.waveform_generator,
+        if self.use_sealgw_detector:
+            self.ifos.inject_signal(waveform_generator=self.waveform_generator,
+                            parameters=injection_parameters,raise_error=False, print_snr=True, print_para=False)
+        else:
+            self.ifos.inject_signal(waveform_generator=self.waveform_generator,
                             parameters=injection_parameters,raise_error=False)
+
         self.update_data(injection_parameters)
 
     def inject_signals(self, injection_parameters_all, Ninj):
@@ -174,3 +194,21 @@ class DataGeneratorBilbyFD:
 
         self.Nsample += new_data['Nsample'][0]
         self.data['Nsample'][0] += new_data['Nsample'][0]
+    
+    def numpy_starins(self):
+        for detname in self.detector_names:
+            self.data['strains'][detname] = np.array(self.data['strains'][detname])
+            self.data['PSDs'][detname] = np.array(self.data['PSDs'][detname])
+        self.numpyed = True
+
+    def scale_strains(self):
+        assert self.whitened == False, 'Strain already whitened!'
+        for detname in self.detector_names:
+            self.data['strains'][detname] *= 1e23
+        self.scaled = True
+    
+    def whiten_strains(self):
+        assert self.scaled == False, 'Strain already scaled!'
+        for detname in self.detector_names:
+            self.data['strains'][detname] /= self.data['PSDs'][detname]**0.5
+        self.whitened = True
