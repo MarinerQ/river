@@ -11,7 +11,16 @@ import numpy as np
 from utils.dataset import CustomDataset
 from utils.model import Net
 from utils.utils import ic
+######################################################################
+ds = DatasetStrainFD(data_dict=data_generator.data, parameter_names=PARAMETER_NAMES_PRECESSINGBNS_BILBY)
 
+theta, strain, psd = ds[0:2]
+
+detector_names = data_generator.detector_names
+aa = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen)
+
+
+######################################################################
 def eval_model(model, device, eval_loader):
     """
     评估模型

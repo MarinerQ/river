@@ -9,15 +9,15 @@ class DatasetStrainFD(Dataset):
         self.farray = torch.from_numpy(data_dict['farray']).float()
         self.Nsample = data_dict['Nsample'][0]
         self.paradim = len(parameter_names)
-
+        self.detector_names = list(data_dict['strains'].keys())
 
         self.injection_parameters = np.zeros((self.Nsample, self.paradim))
         for i, parameter_name in enumerate(parameter_names):
             self.injection_parameters[:,i] = data_dict['injection_parameters'][parameter_name]
         self.injection_parameters = torch.from_numpy(self.injection_parameters).float()
 
-        s = np.array(list(data_dict['strains'].values()))
-        psd = np.array(list(data_dict['PSDs'].values()))
+        s = np.array(list(data_dict['strains'][detname] for detname in self.detector_names ))
+        psd = np.array(list(data_dict['PSDs'][detname] for detname in self.detector_names ))
         inv_asd = np.float32(1 / (psd**0.5))
         s_whitened = np.complex64(s*inv_asd)
         self.inv_asd = torch.from_numpy(inv_asd*1e-23).movedim(0,1).float()

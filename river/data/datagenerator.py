@@ -110,9 +110,11 @@ class DataGeneratorBilbyFD:
         self.data['strains'] = {}
         self.data['PSDs'] = {}
         self.data['injection_parameters'] = {}
+        self.data['SNRs'] = {}
         for detname in self.detector_names:
             self.data['strains'][detname] = []
             self.data['PSDs'][detname] = []
+            self.data['SNRs'][detname] = []
         for paraname in self.parameter_names:
             self.data['injection_parameters'][paraname] = []
         self.data['Nsample'] = [0]
@@ -124,6 +126,7 @@ class DataGeneratorBilbyFD:
             detname = det.name
             self.data['strains'][detname].append(det.frequency_domain_strain[det.frequency_mask])
             self.data['PSDs'][detname].append(det.power_spectral_density_array[det.frequency_mask])
+            self.data['SNRs'][detname].append(abs(det.meta_data['matched_filter_SNR']))
         for paraname in self.parameter_names:
             self.data['injection_parameters'][paraname].append(injection_parameters[paraname])
         self.Nsample+=1
@@ -143,7 +146,7 @@ class DataGeneratorBilbyFD:
 
         if self.use_sealgw_detector:
             self.ifos.inject_signal(waveform_generator=self.waveform_generator,
-                            parameters=injection_parameters,raise_error=False, print_snr=True, print_para=False)
+                            parameters=injection_parameters,raise_error=False, print_snr=False, print_para=False)
         else:
             self.ifos.inject_signal(waveform_generator=self.waveform_generator,
                             parameters=injection_parameters,raise_error=False)
@@ -166,9 +169,11 @@ class DataGeneratorBilbyFD:
             injection_parameters[paraname] = self.data.injection_parameters[paraname][i_data]
         strains = {}
         PSDs = {}
+        SNRs = {}
         for detname in self.detector_names:
             strains[detname] = self.data['strains'][detname][i_data]
             PSDs[detname] = self.data['PSDs'][detname][i_data]
+            SNRs[detname] = self.data['SNRs'][detname][i_data]
 
         return injection_parameters, strains, PSDs
         
@@ -189,6 +194,7 @@ class DataGeneratorBilbyFD:
         for detname in self.detector_names:
             self.data['strains'][detname]+= new_data['strains'][detname]
             self.data['PSDs'][detname]+= new_data['PSDs'][detname]
+            self.data['SNRs'][detname]+= new_data['SNRs'][detname]
         for paraname in self.parameter_names:
             self.data['injection_parameters'][paraname]+= new_data['injection_parameters'][paraname]
 
@@ -199,6 +205,7 @@ class DataGeneratorBilbyFD:
         for detname in self.detector_names:
             self.data['strains'][detname] = np.array(self.data['strains'][detname])
             self.data['PSDs'][detname] = np.array(self.data['PSDs'][detname])
+            self.data['SNRs'][detname] = np.array(self.data['SNRs'][detname])
         self.numpyed = True
 
     def scale_strains(self):
