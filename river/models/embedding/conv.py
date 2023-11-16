@@ -1,15 +1,17 @@
 import torch
+from torch import nn
 
 class EmbeddingConv(nn.Module):
-    def __init__(self, ndet, ncomp, use_psd = True):
+    def __init__(self, ndet, ncomp, nout, use_psd = True, middle_channel = 512):
         super().__init__()
         self.ncomp = ncomp
+        self.nout = nout
         if use_psd:
             self.nchannel = 3*ndet # strains(2) + PSD (1)
         else:
             self.nchannel = 2*ndet
 
-        self.middle_channel = 512
+        self.middle_channel = middle_channel
         self.cnn1 = nn.Sequential(
             nn.Conv1d(in_channels=self.nchannel, out_channels=self.middle_channel, kernel_size=1, stride=1),
             nn.BatchNorm1d(self.middle_channel),
@@ -28,7 +30,7 @@ class EmbeddingConv(nn.Module):
             #nn.MaxPool1d(kernel_size=2)
         )
         self.dropout = nn.Dropout(0.5)
-        self.linear = nn.Linear(self.middle_channel*self.ncomp, 128)
+        self.linear = nn.Linear(self.middle_channel*self.ncomp, self.nout)
 
 
     def forward(self, x):
