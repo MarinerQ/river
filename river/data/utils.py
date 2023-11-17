@@ -71,7 +71,7 @@ def generate_random_distance(Nsample, low, high, power=3):
     Power=3 -> uniform in volume
     Power=1 -> uniform in distance
     '''
-    dl = (high - low) * np.random.power(a=3, size=Nsample) + low
+    dl = (high - low) * np.random.power(a=power, size=Nsample) + low
     return dl
 
 def generate_random_extrinsic_angles(Nsample):
@@ -117,12 +117,14 @@ def generate_BNS_injection_parameters(
         a_max=0.1,
         d_min=10,
         d_max=100,
-        d_power=2):
+        d_power=3,
+        tc_min=-0.1,
+        tc_max=0.1):
     mass_1, mass_2 = generate_random_component_mass(Nsample, 1.1, 3)
     a_1, a_2, tilt_1, tilt_2, phi_12, phi_jl = generate_random_twospins_bilbystyle(Nsample, a_max=a_max)
-    luminosity_distance = generate_random_distance(Nsample, low=d_max, high=d_max, power=d_power)
+    luminosity_distance = generate_random_distance(Nsample, low=d_min, high=d_max, power=d_power)
     theta_jn, ra, dec, psi, phase = generate_random_extrinsic_angles(Nsample)
-    geocent_time = np.random.uniform(0, 3.14e7, Nsample)
+    geocent_time = np.random.uniform(tc_min, tc_max, Nsample)
     lambda_tilde = np.random.uniform(0, 1000, Nsample)
     delta_lambda_tilde = np.random.uniform(-5000, 5000, Nsample)
     lambda_1, lambda_2 = bilby.gw.conversion.lambda_tilde_delta_lambda_tilde_to_lambda_1_lambda_2(lambda_tilde, delta_lambda_tilde, mass_1, mass_2)

@@ -2,7 +2,7 @@ from sklearn.decomposition import IncrementalPCA
 import numpy as np
 import torch
 
-def project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen):
+def project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen, project=True):
     '''
     strain: DatasetStrainFD in batches, e.g. DatasetStrainFD[0:10]
     psd: strain-like
@@ -17,9 +17,15 @@ def project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen):
     output_phi = []
     output_psd = []
     for i,detname in enumerate(detector_names):
-        output_amp.append(ipca_gen.project(strain_amp[:,i,:], detname, 'amplitude'))
-        output_phi.append(ipca_gen.project(strain_phi[:,i,:], detname, 'phase'))
-        output_psd.append(ipca_gen.project(psd[:,i,:], detname, 'amplitude'))
+        if project:
+            output_amp.append(ipca_gen.project(strain_amp[:,i,:], detname, 'amplitude'))
+            output_phi.append(ipca_gen.project(strain_phi[:,i,:], detname, 'phase'))
+            output_psd.append(ipca_gen.project(psd[:,i,:], detname, 'amplitude'))
+        else:
+            output_amp.append(strain_amp.numpy()[:,i,:])
+            output_phi.append(strain_phi[:,i,:])
+            output_psd.append(psd.numpy()[:,i,:])
+
     output_amp = torch.from_numpy(np.array(output_amp))
     output_phi = torch.from_numpy(np.array(output_phi))
     output_psd = torch.from_numpy(np.array(output_psd))

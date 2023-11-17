@@ -29,7 +29,9 @@ injection_parameters_template = generate_BNS_injection_parameters(
         a_max=0.1,
         d_min=10,
         d_max=100,
-        d_power=2)
+        d_power=3,
+        tc_min=-0.1,
+        tc_max=0.1)
 
 source_type = 'BNS'
 detector_names = ['H1', 'L1', 'V1'] 
@@ -62,4 +64,4 @@ n_components=500
 ipca_gen = embedding.pca.IPCAGenerator(data_template_generator.data['strains'], n_components, detector_names, decomposition='exp_unwrap')
 
 output_dir = 'ipca_models'
-modelutils.save_model(f'{output_dir}/IPCA_BNSFD_10000to500_ExpUnwrap.pickle', ipca_gen)
+modelutils.save_model(f'{output_dir}/IPCA_BNSFD_10000to500_ExpUnwrap_fixtc.pickle', ipca_gen)
