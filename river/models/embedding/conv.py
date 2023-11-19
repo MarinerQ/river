@@ -29,7 +29,7 @@ class ResidualBlock1D(nn.Module):
         return out
 
 class EmbeddingConv1D(nn.Module):
-    def __init__(self, ndet, ncomp, nout, use_psd = True, middle_channel = 512, kernel_size=1, stride=1, padding=0, dilation=1):
+    def __init__(self, ndet, ncomp, nout, num_blocks, use_psd = True, middle_channel = 512, kernel_size=1, stride=1, padding=0, dilation=1):
         super().__init__()
         self.ncomp = ncomp
         self.nout = nout
@@ -39,9 +39,7 @@ class EmbeddingConv1D(nn.Module):
             self.nchannel = 2*ndet
 
         self.middle_channel = middle_channel
-        self.layer1 = self.make_layer(ResidualBlock1D, self.middle_channel, kernel_size, stride, padding, dilation)
-        self.layer2 = self.make_layer(ResidualBlock1D, self.middle_channel, kernel_size, stride, padding, dilation)
-        self.layer3 = self.make_layer(ResidualBlock1D, self.middle_channel, kernel_size, stride, padding, dilation)
+        self.layers = nn.ModuleList([self.make_layer(ResidualBlock1D, self.middle_channel, kernel_size, stride, padding, dilation) for _ in range(num_blocks)])
         self.linear = nn.Linear(self.middle_channel, self.nout)
 
     def make_layer(self, block, out_channels, kernel_size, stride, padding, dilation):
@@ -53,9 +51,8 @@ class EmbeddingConv1D(nn.Module):
     def forward(self, x):
         # x : [batch_size, channel (det_123, amp/phase) = 2*ndet, length (number of samples)]
         # bs,_,_  = x.shape 
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
+        for layer in self.layers:
+            x = layer(x)
         x = F.avg_pool1d(x, x.size()[2])
         x = x.view(x.size(0), -1)
         output = self.linear(x)
@@ -88,7 +85,7 @@ class ResidualBlock2D(nn.Module):
         return out
 
 class EmbeddingConv2D(nn.Module):
-    def __init__(self, ndet, ncomp, nout, use_psd = True, middle_channel = 16, kernel_size=1, stride=1, padding=0, dilation=1):
+    def __init__(self, ndet, ncomp, nout, num_blocks, use_psd = True, middle_channel = 16, kernel_size=1, stride=1, padding=0, dilation=1):
         super().__init__()
         self.ncomp = ncomp
         self.nout = nout
@@ -98,9 +95,7 @@ class EmbeddingConv2D(nn.Module):
             self.nchannel = 2*ndet
 
         self.middle_channel = middle_channel
-        self.layer1 = self.make_layer(ResidualBlock2D, self.middle_channel, kernel_size, stride, padding, dilation)
-        self.layer2 = self.make_layer(ResidualBlock2D, self.middle_channel, kernel_size, stride, padding, dilation)
-        self.layer3 = self.make_layer(ResidualBlock2D, self.middle_channel, kernel_size, stride, padding, dilation)
+        self.layers = nn.ModuleList([self.make_layer(ResidualBlock2D, self.middle_channel, kernel_size, stride, padding, dilation) for _ in range(num_blocks)])
         self.linear = nn.Linear(self.middle_channel, self.nout)
 
     def make_layer(self, block, out_channels, kernel_size, stride, padding, dilation):
@@ -112,9 +107,8 @@ class EmbeddingConv2D(nn.Module):
     def forward(self, x):
         # x : [batch_size, channel (det_123, amp/phase) = 2*ndet, length (number of samples)]
         # bs,_,_,_  = x.shape 
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
+        for layer in self.layers:
+            x = layer(x)
         x = F.avg_pool2d(x, x.size()[2:])
         x = x.view(x.size(0), -1)
         output = self.linear(x)
