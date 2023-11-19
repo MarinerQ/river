@@ -29,9 +29,9 @@ class ResidualBlock1D(nn.Module):
         return out
 
 class EmbeddingConv1D(nn.Module):
-    def __init__(self, ndet, ncomp, nout, num_blocks, use_psd = True, middle_channel = 512, kernel_size=1, stride=1, padding=0, dilation=1):
+    def __init__(self, ndet, nout, num_blocks, use_psd = True, middle_channel = 512, kernel_size=1, stride=1, padding=0, dilation=1):
         super().__init__()
-        self.ncomp = ncomp
+        #self.ncomp = ncomp
         self.nout = nout
         if use_psd:
             self.nchannel = 3*ndet # strains(2) + PSD (1)
@@ -85,9 +85,9 @@ class ResidualBlock2D(nn.Module):
         return out
 
 class EmbeddingConv2D(nn.Module):
-    def __init__(self, ndet, ncomp, nout, num_blocks, use_psd = True, middle_channel = 16, kernel_size=1, stride=1, padding=0, dilation=1):
+    def __init__(self, ndet, nout, num_blocks, use_psd = True, middle_channel = 16, kernel_size=1, stride=1, padding=0, dilation=1):
         super().__init__()
-        self.ncomp = ncomp
+        #self.ncomp = ncomp
         self.nout = nout
         if use_psd:
             self.nchannel = 3*ndet # strains(2) + PSD (1)

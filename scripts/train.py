@@ -29,6 +29,7 @@ from river.models.embedding.conv import EmbeddingConv1D, EmbeddingConv2D
 import logging
 import sys
 import os
+PID = os.getpid()
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -53,7 +54,7 @@ PSD_type = 'bilby_default' #'zero_noise'
 use_sealgw_detector = True
 
 
-Nsample = 2000
+Nsample = 5000
 Nvalid = 200
 injection_parameters_valid = generate_BNS_injection_parameters(Nvalid,
         a_max=0.1,
@@ -103,7 +104,10 @@ data_generator_valid.numpy_starins()
 dataset_train = DatasetStrainFD(data_dict=data_generator_train.data, parameter_names=PARAMETER_NAMES_PRECESSINGBNS_BILBY)
 dataset_valid = DatasetStrainFD(data_dict=data_generator_valid.data, parameter_names=PARAMETER_NAMES_PRECESSINGBNS_BILBY)
 
-batch_size_train = 256
+data_generator_train.initialize_data()
+data_generator_valid.initialize_data()
+
+batch_size_train = 512
 batch_size_valid = 64
 train_loader = DataLoader(dataset_train, batch_size=batch_size_train, shuffle=True)
 valid_loader = DataLoader(dataset_valid, batch_size=batch_size_valid, shuffle=True)
@@ -118,11 +122,12 @@ downsample_rate = 4
 n_freq = dataset_train[0:2][1][:,:,::downsample_rate].shape[-1]
 device='cuda'
 
-embedding_proj = EmbeddingConv1D(ndet=3, ncomp=n_components, nout=128, middle_channel=512).to(device)
-embedding_noproj = EmbeddingConv2D(ndet=3, ncomp=n_freq, nout=128, middle_channel=16).to(device)
+#ndet, nout, num_blocks
+embedding_proj = EmbeddingConv2D(ndet=3, nout=128, num_blocks=3, middle_channel=64).to(device)
+embedding_noproj = EmbeddingConv2D(ndet=3, nout=128, num_blocks=3, middle_channel=64).to(device)
 #flow = zuko.flows.NSF(features=17, context=256, transforms=100, hidden_features=(640, 640)).to(device)
 #flow = zuko.flows.CNF(features=17, context=256, hidden_features=(640, 640)).to(device)
-flow = CouplingNSF(n_inputs=17,n_transforms=100, n_conditional_inputs=256, n_neurons=128, batch_norm_between_transforms=True,).to(device)
+flow = CouplingNSF(n_inputs=17,n_transforms=128, n_conditional_inputs=256, n_neurons=256, batch_norm_between_transforms=True,).to(device)
 
 train_func = train_glasflow #train_zukoflow
 eval_func = eval_glasflow #eval_zukoflow
@@ -132,7 +137,7 @@ optimizer = torch.optim.Adam(list(embedding_proj.parameters()) + list(embedding_
 #sche_step_size = 20
 #scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=sche_step_size, gamma=gamma)
 
-ckpt_dir = 'trained_models/glasnsf_fixtc_twoconv_res'
+ckpt_dir = 'trained_models/glasnsf_fixtc_2d2d'
 if not os.path.exists(ckpt_dir):
     os.mkdir(ckpt_dir)
     print(f"Made dir {ckpt_dir}")
@@ -146,9 +151,9 @@ ckpt_path = f'{ckpt_dir}/checkpoint.pickle'
 
 max_epoch = 2000000
 epoches_update = 20
-epoches_pretrain = 40
+epoches_pretrain = 10
 epoches_save_loss = 20
-epoches_adjust_lr = 20
+epoches_adjust_lr = 10
 
 load_from_previous_train = 0
 if load_from_previous_train:
@@ -179,6 +184,14 @@ else:
 #for g in optimizer.param_groups:
 #    g['lr'] = 5e-4
 
+npara_flow = count_parameters(flow)
+npara_embd_proj = count_parameters(embedding_proj)
+npara_embd_noproj = count_parameters(embedding_noproj)
+logger.info(f'Learnable parameters: flow: {npara_flow}, embedding_PCA: {npara_embd_proj}, embedding_strain: {npara_embd_noproj}. Total: {npara_embd_noproj+npara_embd_proj+npara_flow}. ')
+
+logger.info(f'Training started, PID={PID}.')
+
+
 for epoch in range(start_epoch, max_epoch):    
     if epoch % epoches_update == 0 and epoch>=epoches_pretrain:
         data_generator_train.initialize_data()
@@ -188,6 +201,7 @@ for epoch in range(start_epoch, max_epoch):
         dataset_train = DatasetStrainFD(data_dict=data_generator_train.data, parameter_names=PARAMETER_NAMES_PRECESSINGBNS_BILBY)
         train_loader = DataLoader(dataset_train, batch_size_train, shuffle=True)
         logger.info(f"Training data updated at epoch={epoch}")
+        data_generator_train.initialize_data()
 
     train_loss, train_loss_std = train_func(flow, embedding_proj, embedding_noproj, optimizer, train_loader, detector_names, ipca_gen, device=device, downsample_rate=downsample_rate)
     valid_loss, valid_loss_std = eval_func(flow,  embedding_proj, embedding_noproj, valid_loader, detector_names, ipca_gen, device=device, downsample_rate=downsample_rate)
@@ -214,7 +228,8 @@ for epoch in range(start_epoch, max_epoch):
     if epoch%epoches_save_loss == 0 and epoch!=0:
         save_loss_data(train_losses, valid_losses, ckpt_dir)
     
-    if epoch-best_epoch>epoches_adjust_lr and epoch-lr_updated_epoch>5:
+    if epoch-best_epoch>=epoches_adjust_lr and epoch-lr_updated_epoch>=5:
         adjust_lr(optimizer, gamma)
-        logger.info(f'Validation loss has not dropped for {epoches_adjust_lr} epoches. Learning rate decreased by a factor of {gamma}.')
+        logger.info(f'Validation loss has not dropped for {epoches_adjust_lr} epoches. Learning rate is decreased by a factor of {gamma}.')
+        lr_updated_epoch = epoch
     #scheduler.step()

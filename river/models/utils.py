@@ -7,7 +7,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch import nn
 import pandas as pd
 from .embedding.pca import project_strain_data_FDAPhi
-
+from .embedding.conv import EmbeddingConv1D, EmbeddingConv2D
 
 def save_model(filename, model):
     with open(filename, 'wb') as f:
@@ -19,6 +19,9 @@ def load_model(filename):
         model = pickle.load(f)
     print(f'Model loaded from {filename}')
     return model 
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 def adjust_lr(optimizer, gamma):
     for g in optimizer.param_groups:
@@ -35,14 +38,23 @@ def save_loss_data(train_losses, valid_losses, outdir, logscale='true'):
     if logscale:
         plt.yscale('log')
     
+    plt.ylim(min(min(train_losses), min(valid_losses)), 1.2*max(train_losses))
     plt.savefig(f'{outdir}/losses.png')
     np.savetxt(f'{outdir}/train_losses.txt', train_losses)
     np.savetxt(f'{outdir}/valid_losses.txt', valid_losses)
 
+def get_embd_dim(embd):
+    if type(embd) in [EmbeddingConv1D]:
+        dim = 1
+    elif type(embd) in [EmbeddingConv2D]:
+        dim = 2
+    else:
+        raise Exception("Wrong embedding layer type.")
+    return dim 
 
 def get_condition_2proj(embedding_proj, embedding_noproj, theta, strain, psd, detector_names, ipca_gen, device, downsample_rate):
-    inputs_proj = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen).to(device)
-    inputs_noproj = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen, project=False, downsample_rate=downsample_rate, dim=2).to(device) #.unsqueeze(1)
+    inputs_proj = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen, dim=get_embd_dim(embedding_proj)).to(device)
+    inputs_noproj = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen, project=False, downsample_rate=downsample_rate, dim=get_embd_dim(embedding_noproj)).to(device) 
 
     embedding_out_proj = embedding_proj(inputs_proj)
     embedding_out_noproj = embedding_noproj(inputs_noproj)
