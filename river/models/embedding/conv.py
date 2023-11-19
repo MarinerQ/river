@@ -1,8 +1,35 @@
 import torch
 from torch import nn
+import torch.nn.functional as F
+
+class ResidualBlock1D(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=1, stride=1, padding=0, dilation=1):
+        super().__init__()
+        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation)
+        self.bn1 = nn.BatchNorm1d(out_channels)
+        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size=kernel_size, padding=padding, dilation=dilation)
+        self.bn2 = nn.BatchNorm1d(out_channels)
+
+        self.downsample = nn.Sequential()
+        if stride != 1 or in_channels != out_channels:
+            self.downsample = nn.Sequential(
+                nn.Conv1d(in_channels, out_channels, kernel_size=1, stride=stride),
+                nn.BatchNorm1d(out_channels)
+            )
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = F.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out += self.downsample(residual)
+        out = F.relu(out)
+        return out
 
 class EmbeddingConv1D(nn.Module):
-    def __init__(self, ndet, ncomp, nout, use_psd = True, middle_channel = 512):
+    def __init__(self, ndet, ncomp, nout, use_psd = True, middle_channel = 512, kernel_size=1, stride=1, padding=0, dilation=1):
         super().__init__()
         self.ncomp = ncomp
         self.nout = nout
@@ -12,79 +39,84 @@ class EmbeddingConv1D(nn.Module):
             self.nchannel = 2*ndet
 
         self.middle_channel = middle_channel
-        self.cnn1 = nn.Sequential(
-            nn.Conv1d(in_channels=self.nchannel, out_channels=self.middle_channel, kernel_size=1, stride=1),
-            nn.BatchNorm1d(self.middle_channel),
-            #nn.MaxPool1d(kernel_size=2)
-        )
-        
-        self.cnn2 = nn.Sequential(
-            nn.Conv1d(in_channels=self.middle_channel, out_channels=self.middle_channel, kernel_size=1, stride=1),
-            nn.BatchNorm1d(self.middle_channel),
-            #nn.MaxPool1d(kernel_size=2)
-        )
+        self.layer1 = self.make_layer(ResidualBlock1D, self.middle_channel, kernel_size, stride, padding, dilation)
+        self.layer2 = self.make_layer(ResidualBlock1D, self.middle_channel, kernel_size, stride, padding, dilation)
+        self.layer3 = self.make_layer(ResidualBlock1D, self.middle_channel, kernel_size, stride, padding, dilation)
+        self.linear = nn.Linear(self.middle_channel, self.nout)
 
-        self.cnn3 = nn.Sequential(
-            nn.Conv1d(in_channels=self.middle_channel, out_channels=self.middle_channel, kernel_size=1, stride=1),
-            nn.BatchNorm1d(self.middle_channel),
-            #nn.MaxPool1d(kernel_size=2)
-        )
-        self.dropout = nn.Dropout(0.5)
-        self.linear = nn.Linear(self.middle_channel*self.ncomp, self.nout)
-
+    def make_layer(self, block, out_channels, kernel_size, stride, padding, dilation):
+        layers = []
+        layers.append(block(self.nchannel, out_channels, kernel_size, stride, padding, dilation))
+        self.nchannel = out_channels
+        return nn.Sequential(*layers)
 
     def forward(self, x):
         # x : [batch_size, channel (det_123, amp/phase) = 2*ndet, length (number of samples)]
-        bs,_,_  = x.shape 
-        x = self.cnn1(x)
-        x = self.cnn2(x)
-        x = self.cnn3(x)
-        x = self.dropout(x).reshape((bs,-1))
+        # bs,_,_  = x.shape 
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = F.avg_pool1d(x, x.size()[2])
+        x = x.view(x.size(0), -1)
         output = self.linear(x)
-
         return output
 
+class ResidualBlock2D(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=1, stride=1, padding=0, dilation=1):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, padding=padding, dilation=dilation)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+        self.downsample = nn.Sequential()
+        if stride != 1 or in_channels != out_channels:
+            self.downsample = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride),
+                nn.BatchNorm2d(out_channels)
+            )
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = F.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out += self.downsample(residual)
+        out = F.relu(out)
+        return out
+
 class EmbeddingConv2D(nn.Module):
-    def __init__(self, ndet, ncomp, nout, use_psd = True, middle_channel = 16):
+    def __init__(self, ndet, ncomp, nout, use_psd = True, middle_channel = 16, kernel_size=1, stride=1, padding=0, dilation=1):
         super().__init__()
         self.ncomp = ncomp
         self.nout = nout
         if use_psd:
-            self.n1dchannel = 3*ndet # strains(2) + PSD (1)
+            self.nchannel = 3*ndet # strains(2) + PSD (1)
         else:
-            self.n1dchannel = 2*ndet
+            self.nchannel = 2*ndet
 
         self.middle_channel = middle_channel
-        self.cnn1 = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=self.middle_channel, kernel_size=1, stride=1, dilation=1),
-            nn.BatchNorm2d(self.middle_channel),
-            #nn.MaxPool1d(kernel_size=2)
-        )
-        
-        self.cnn2 = nn.Sequential(
-            nn.Conv2d(in_channels=self.middle_channel, out_channels=self.middle_channel, kernel_size=1, stride=1, dilation=1),
-            nn.BatchNorm2d(self.middle_channel),
-            #nn.MaxPool1d(kernel_size=2)
-        )
+        self.layer1 = self.make_layer(ResidualBlock2D, self.middle_channel, kernel_size, stride, padding, dilation)
+        self.layer2 = self.make_layer(ResidualBlock2D, self.middle_channel, kernel_size, stride, padding, dilation)
+        self.layer3 = self.make_layer(ResidualBlock2D, self.middle_channel, kernel_size, stride, padding, dilation)
+        self.linear = nn.Linear(self.middle_channel, self.nout)
 
-        self.cnn3 = nn.Sequential(
-            nn.Conv2d(in_channels=self.middle_channel, out_channels=self.middle_channel, kernel_size=1, stride=1, dilation=1),
-            nn.BatchNorm2d(self.middle_channel),
-            #nn.MaxPool1d(kernel_size=2)
-        )
-        self.dropout = nn.Dropout(0.5)
-        #self.linear = nn.Linear(self.middle_channel*self.ncomp*self.n1dchannel, self.nout)
-        self.linear = nn.Linear(771096, self.nout)
-
+    def make_layer(self, block, out_channels, kernel_size, stride, padding, dilation):
+        layers = []
+        layers.append(block(self.nchannel, out_channels, kernel_size, stride, padding, dilation))
+        self.nchannel = out_channels
+        return nn.Sequential(*layers)
 
     def forward(self, x):
         # x : [batch_size, channel (det_123, amp/phase) = 2*ndet, length (number of samples)]
-        bs,_,_,_  = x.shape 
-        x = self.cnn1(x)
-        x = self.cnn2(x)
-        x = self.cnn3(x)
-        x = self.dropout(x).reshape((bs,-1))
-        #output = nn.Linear(len(x), self.nout, device=self.device)(x)
+        # bs,_,_,_  = x.shape 
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = F.avg_pool2d(x, x.size()[2:])
+        x = x.view(x.size(0), -1)
         output = self.linear(x)
-
         return output
+
