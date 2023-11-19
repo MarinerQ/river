@@ -42,12 +42,11 @@ def save_loss_data(train_losses, valid_losses, outdir, logscale='true'):
 
 def get_condition_2proj(embedding_proj, embedding_noproj, theta, strain, psd, detector_names, ipca_gen, device, downsample_rate):
     inputs_proj = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen).to(device)
-    inputs_noproj = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen, project=False, downsample_rate=downsample_rate).to(device) #.unsqueeze(1)
-    theta = theta.to(device)
+    inputs_noproj = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen, project=False, downsample_rate=downsample_rate, dim=2).to(device) #.unsqueeze(1)
 
     embedding_out_proj = embedding_proj(inputs_proj)
     embedding_out_noproj = embedding_noproj(inputs_noproj)
-    condition = torch.cat((embedding_out_proj, embedding_out_noproj), -1)
+    condition = torch.cat((embedding_out_proj, embedding_out_noproj), -1)#.to(device)
 
     return condition
 
@@ -67,6 +66,7 @@ def train_zukoflow(flow, embedding_proj, embedding_noproj, optimizer, dataloader
         embedding_out_noproj = embedding_noproj(inputs_noproj)
         condition = torch.cat((embedding_out_proj, embedding_out_noproj), -1)
         '''
+        theta = theta.to(device)
         condition = get_condition_2proj(embedding_proj, embedding_noproj, theta, strain, psd, detector_names, ipca_gen, device, downsample_rate)
 
         loss = -flow(condition).log_prob(theta).mean() # mean(list of losses of elements in this batch)
@@ -86,6 +86,7 @@ def eval_zukoflow(flow, embedding_proj, embedding_noproj, dataloader, detector_n
     loss_list = []
     with torch.no_grad():
         for theta, strain, psd in dataloader:
+            theta = theta.to(device)
             condition = get_condition_2proj(embedding_proj, embedding_noproj, theta, strain, psd, detector_names, ipca_gen, device, downsample_rate)
 
             loss = -flow(condition).log_prob(theta).mean()
@@ -103,6 +104,7 @@ def sample_zukoflow(flow, embedding_proj, embedding_noproj, dataset, detector_na
     dataloader = DataLoader(dataset, batch_size=len(dataset), shuffle=False)
     with torch.no_grad():
         for theta, strain, psd in dataloader:
+            theta = theta.to(device)
             condition = get_condition_2proj(embedding_proj, embedding_noproj, theta, strain, psd, detector_names, ipca_gen, device, downsample_rate)
 
             loss = -flow(condition).log_prob(theta)
@@ -120,6 +122,7 @@ def train_glasflow(flow, embedding_proj, embedding_noproj, optimizer, dataloader
     embedding_noproj.train()
     loss_list = []
     for theta, strain, psd in dataloader:
+        theta = theta.to(device)
         optimizer.zero_grad()
 
         condition = get_condition_2proj(embedding_proj, embedding_noproj, theta, strain, psd, detector_names, ipca_gen, device, downsample_rate)
@@ -141,7 +144,7 @@ def eval_glasflow(flow, embedding_proj, embedding_noproj, dataloader, detector_n
     loss_list = []
     with torch.no_grad():
         for theta, strain, psd in dataloader:
-
+            theta = theta.to(device)
             condition = get_condition_2proj(embedding_proj, embedding_noproj, theta, strain, psd, detector_names, ipca_gen, device, downsample_rate)
 
             loss = -flow.log_prob(theta, conditional=condition).mean()
@@ -159,6 +162,7 @@ def sample_glasflow(flow, embedding_proj, embedding_noproj, dataset, detector_na
     dataloader = DataLoader(dataset, batch_size=len(dataset), shuffle=False)
     with torch.no_grad():
         for theta, strain, psd in dataloader:
+            theta = theta.to(device)
             condition = get_condition_2proj(embedding_proj, embedding_noproj, theta, strain, psd, detector_names, ipca_gen, device, downsample_rate)
 
             loss = -flow.log_prob(theta, conditional=condition).mean()

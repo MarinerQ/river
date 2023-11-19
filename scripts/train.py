@@ -1,3 +1,4 @@
+# conda activate myigwn-py39
 import numpy as np
 import bilby 
 import pycbc 
@@ -117,8 +118,8 @@ downsample_rate = 4
 n_freq = dataset_train[0:2][1][:,:,::downsample_rate].shape[-1]
 device='cuda'
 
-embedding_proj = EmbeddingConv1D(ndet=3, ncomp=n_components, nout=128, middle_channel=1024).to(device)
-embedding_noproj = EmbeddingConv2D(ndet=3, ncomp=n_freq, nout=128, middle_channel=8).to(device)
+embedding_proj = EmbeddingConv1D(ndet=3, ncomp=n_components, nout=128, middle_channel=512).to(device)
+embedding_noproj = EmbeddingConv2D(ndet=3, ncomp=n_freq, nout=128, middle_channel=16).to(device)
 #flow = zuko.flows.NSF(features=17, context=256, transforms=100, hidden_features=(640, 640)).to(device)
 #flow = zuko.flows.CNF(features=17, context=256, hidden_features=(640, 640)).to(device)
 flow = CouplingNSF(n_inputs=17,n_transforms=100, n_conditional_inputs=256, n_neurons=128, batch_norm_between_transforms=True,).to(device)
@@ -131,7 +132,7 @@ optimizer = torch.optim.Adam(list(embedding_proj.parameters()) + list(embedding_
 #sche_step_size = 20
 #scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=sche_step_size, gamma=gamma)
 
-ckpt_dir = 'trained_models/glasnsf_fixtc_twoconv'
+ckpt_dir = 'trained_models/glasnsf_fixtc_twoconv_res'
 if not os.path.exists(ckpt_dir):
     os.mkdir(ckpt_dir)
     print(f"Made dir {ckpt_dir}")
@@ -149,7 +150,7 @@ epoches_pretrain = 40
 epoches_save_loss = 20
 epoches_adjust_lr = 20
 
-load_from_previous_train = 1
+load_from_previous_train = 0
 if load_from_previous_train:
     checkpoint = torch.load(ckpt_path)
     
@@ -175,8 +176,8 @@ else:
     lr_updated_epoch = start_epoch
 
 
-for g in optimizer.param_groups:
-    g['lr'] = 5e-4
+#for g in optimizer.param_groups:
+#    g['lr'] = 5e-4
 
 for epoch in range(start_epoch, max_epoch):    
     if epoch % epoches_update == 0 and epoch>=epoches_pretrain:
