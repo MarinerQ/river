@@ -2,7 +2,9 @@ import numpy as np
 import h5py 
 import bilby
 
-PARAMETER_NAMES_PRECESSINGBNS_BILBY = ['mass_1', 'mass_2', 'a_1', 'a_2', 'tilt_1', 'tilt_2', 'phi_12', 'phi_jl', 'lambda_1', 'lambda_2', 'theta_jn', 'luminosity_distance', 'ra', 'dec', 'psi', 'phase', 'geocent_time' ]
+#PARAMETER_NAMES_PRECESSINGBNS_BILBY = ['mass_1', 'mass_2', 'a_1', 'a_2', 'tilt_1', 'tilt_2', 'phi_12', 'phi_jl', 'lambda_1', 'lambda_2', 'theta_jn', 'luminosity_distance', 'ra', 'dec', 'psi', 'phase', 'geocent_time' ]
+PARAMETER_NAMES_ALL_PRECESSINGBNS_BILBY = ['mass_1', 'mass_2', 'chirp_mass', 'mass_ratio', 'a_1', 'a_2', 'tilt_1', 'tilt_2', 'phi_12', 'phi_jl', 'lambda_1', 'lambda_2', 'lambda_tilde', 'delta_lambda_tilde', 'theta_jn', 'luminosity_distance', 'ra', 'dec', 'psi', 'phase', 'geocent_time' ]
+PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY = ['chirp_mass', 'mass_ratio', 'a_1', 'a_2', 'tilt_1', 'tilt_2', 'phi_12', 'phi_jl', 'lambda_tilde', 'delta_lambda_tilde', 'theta_jn', 'luminosity_distance', 'ra', 'dec', 'psi', 'phase', 'geocent_time' ]
 
 PARAMETER_NAMES_PRECESSINGBBH_BILBY = ['mass_1', 'mass_2', 'a_1', 'a_2', 'tilt_1', 'tilt_2', 'phi_12', 'phi_jl', 'theta_jn', 'luminosity_distance', 'ra', 'dec', 'psi', 'phase', 'geocent_time' ]
 
@@ -88,11 +90,13 @@ def generate_random_extrinsic_angles(Nsample):
     return theta_jn, ra, dec, psi, phi 
 
 
-def assemble_pBNS_parameters(mass_1, mass_2, a_1, a_2, tilt_1, tilt_2, phi_12, phi_jl, lambda_1, lambda_2,
+def assemble_pBNS_parameters(mass_1, mass_2, chirp_mass, mass_ratio, a_1, a_2, tilt_1, tilt_2, phi_12, phi_jl, lambda_1, lambda_2, lambda_tilde, delta_lambda_tilde,
     theta_jn, luminosity_distance, ra, dec, psi, phase, geocent_time):
     injection_parameters = {}
     injection_parameters['mass_1'] = mass_1
     injection_parameters['mass_2'] = mass_2
+    injection_parameters['chirp_mass'] = chirp_mass
+    injection_parameters['mass_ratio'] = mass_ratio
     injection_parameters['a_1'] = a_1
     injection_parameters['a_2'] = a_2
     injection_parameters['tilt_1'] = tilt_1
@@ -101,6 +105,8 @@ def assemble_pBNS_parameters(mass_1, mass_2, a_1, a_2, tilt_1, tilt_2, phi_12, p
     injection_parameters['phi_jl'] = phi_jl
     injection_parameters['lambda_1'] = lambda_1
     injection_parameters['lambda_2'] = lambda_2
+    injection_parameters['lambda_tilde'] = lambda_tilde
+    injection_parameters['delta_lambda_tilde'] = delta_lambda_tilde
     injection_parameters['theta_jn'] = theta_jn
     injection_parameters['luminosity_distance'] = luminosity_distance
     injection_parameters['ra'] = ra
@@ -119,16 +125,28 @@ def generate_BNS_injection_parameters(
         d_max=100,
         d_power=3,
         tc_min=-0.1,
-        tc_max=0.1):
+        tc_max=0.1,
+        lambda_min = 0,
+        lambda_max = 5000,
+        **kwargs):
     mass_1, mass_2 = generate_random_component_mass(Nsample, 1.1, 3)
+    chirp_mass = bilby.gw.conversion.component_masses_to_chirp_mass(mass_1, mass_2)
+    mass_ratio = mass_2/mass_1
     a_1, a_2, tilt_1, tilt_2, phi_12, phi_jl = generate_random_twospins_bilbystyle(Nsample, a_max=a_max)
     luminosity_distance = generate_random_distance(Nsample, low=d_min, high=d_max, power=d_power)
     theta_jn, ra, dec, psi, phase = generate_random_extrinsic_angles(Nsample)
     geocent_time = np.random.uniform(tc_min, tc_max, Nsample)
-    lambda_tilde = np.random.uniform(0, 1000, Nsample)
-    delta_lambda_tilde = np.random.uniform(-5000, 5000, Nsample)
-    lambda_1, lambda_2 = bilby.gw.conversion.lambda_tilde_delta_lambda_tilde_to_lambda_1_lambda_2(lambda_tilde, delta_lambda_tilde, mass_1, mass_2)
+    #lambda_tilde = np.random.uniform(0, 1000, Nsample)
+    #delta_lambda_tilde = np.random.uniform(-5000, 5000, Nsample)
+    #lambda_1, lambda_2 = bilby.gw.conversion.lambda_tilde_delta_lambda_tilde_to_lambda_1_lambda_2(lambda_tilde, delta_lambda_tilde, mass_1, mass_2)
+    lambda_1 = np.random.uniform(lambda_min, lambda_max, Nsample)
+    lambda_2 = np.random.uniform(lambda_min, lambda_max, Nsample)
+    lambda_tilde = bilby.gw.conversion.lambda_1_lambda_2_to_lambda_tilde(lambda_1, lambda_2, mass_1, mass_2)
+    delta_lambda_tilde = bilby.gw.conversion.lambda_1_lambda_2_to_delta_lambda_tilde(lambda_1, lambda_2, mass_1, mass_2)
 
-    injection_parameters_all = assemble_pBNS_parameters(mass_1, mass_2, a_1, a_2, tilt_1, tilt_2, phi_12, phi_jl, lambda_1, lambda_2, theta_jn, luminosity_distance, ra, dec, psi, phase, geocent_time)
+    injection_parameters_all = assemble_pBNS_parameters(mass_1, mass_2, chirp_mass, mass_ratio, 
+                                                         a_1, a_2, tilt_1, tilt_2, phi_12, phi_jl, 
+                                                         lambda_1, lambda_2, lambda_tilde, delta_lambda_tilde, 
+                                                         theta_jn, luminosity_distance, ra, dec, psi, phase, geocent_time)
 
     return injection_parameters_all

@@ -8,6 +8,7 @@ training_data
 *.out 
 *.png 
 *.txt
+*.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

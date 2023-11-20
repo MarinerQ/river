@@ -18,7 +18,8 @@ class DataGeneratorBilbyFD:
             frequency_domain_source_model = None,
             PSD_type = 'bilby_default',
             custom_psd_path=None,
-            use_sealgw_detector=False):
+            use_sealgw_detector=False,
+            **kwargs):
 
         # set properties
         self.source_type = source_type
@@ -82,7 +83,7 @@ class DataGeneratorBilbyFD:
                 if type(custom_psd_path) == str and '.xml' in custom_psd_path:
                     temppsd = spiir.io.ligolw.array.load_psd_series_from_xml(
                         custom_psd_path
-                    )[det_name_list[i]]
+                    )[detector_names[i]]
                     psdarray = temppsd.to_numpy()
                     freqarray = temppsd.index.to_numpy()
                     psdarray[

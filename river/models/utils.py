@@ -5,10 +5,16 @@ import bilby
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch import nn
-import pandas as pd
-from .embedding.pca import project_strain_data_FDAPhi
-from .embedding.conv import EmbeddingConv1D, EmbeddingConv2D
+from glasflow import CouplingNSF, RealNVP
+import zuko
 
+import pandas as pd
+from .embedding.conv import EmbeddingConv1D, EmbeddingConv2D
+from .embedding.mlp import EmbeddingMLP1D
+
+############################################
+########## Data Loading functions ##########
+############################################
 def save_model(filename, model):
     with open(filename, 'wb') as f:
         pickle.dump(model, f)
@@ -44,7 +50,7 @@ def save_loss_data(train_losses, valid_losses, outdir, logscale='true'):
     np.savetxt(f'{outdir}/valid_losses.txt', valid_losses)
 
 def get_embd_dim(embd):
-    if type(embd) in [EmbeddingConv1D]:
+    if type(embd) in [EmbeddingConv1D, EmbeddingMLP1D]:
         dim = 1
     elif type(embd) in [EmbeddingConv2D]:
         dim = 2
@@ -52,7 +58,61 @@ def get_embd_dim(embd):
         raise Exception("Wrong embedding layer type.")
     return dim 
 
-def get_condition_2proj(embedding_proj, embedding_noproj, theta, strain, psd, detector_names, ipca_gen, device, downsample_rate):
+def get_model(config_dict):
+    config_dict_cpy = config_dict.copy()
+    model_name = config_dict_cpy.pop('model')
+    if model_name == 'EmbeddingConv1D':
+        return EmbeddingConv1D(**config_dict_cpy)
+    elif model_name == 'EmbeddingConv2D':
+        return EmbeddingConv2D(**config_dict_cpy)
+    elif model_name == 'EmbeddingMLP1D':
+        return EmbeddingMLP1D(**config_dict_cpy)
+    elif model_name == 'CouplingNSF':
+        return CouplingNSF(**config_dict_cpy)
+
+def get_train_func(flow):
+    if type(flow) in [CouplingNSF, RealNVP]:
+        return train_glasflow, eval_glasflow
+    elif type(flow) in [zuko.flows.NSF, zuko.flows.CNF]:
+        return train_zukoflow, eval_zukoflow
+
+def project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen, project=True, downsample_rate=1, dim=1):
+    '''
+    strain: DatasetStrainFD in batches, e.g. DatasetStrainFD[0:10]
+    psd: strain-like
+    detector_names: DatasetStrainFD.detector_names
+    ipca_gen: IPCAGenerator
+    '''
+    strain_amp = np.abs(strain)
+    strain_phi = np.unwrap(np.angle(strain) , axis=-1)
+    n_components = ipca_gen.n_components
+    batch_size = strain.shape[0]
+    ndet = len(detector_names)
+
+    output_amp = []
+    output_phi = []
+    output_psd = []
+    for i,detname in enumerate(detector_names):
+        if project:
+            output_amp.append(ipca_gen.project(strain_amp[:,i,:], detname, 'amplitude'))
+            output_phi.append(ipca_gen.project(strain_phi[:,i,:], detname, 'phase'))
+            output_psd.append(ipca_gen.project(psd[:,i,:], detname, 'amplitude'))
+        else:
+            output_amp.append(strain_amp.numpy()[:,i,:][:,::downsample_rate])
+            output_phi.append(strain_phi[:,i,:][:,::downsample_rate])
+            output_psd.append(psd.numpy()[:,i,:][:,::downsample_rate])
+
+    output_amp = torch.from_numpy(np.array(output_amp))
+    output_phi = torch.from_numpy(np.array(output_phi))
+    output_psd = torch.from_numpy(np.array(output_psd))
+    data_length = output_amp.shape[-1]
+    if dim==1:
+        return torch.cat((output_amp, output_phi, output_psd)).movedim(0,1).float()
+    elif dim==2:
+        return torch.cat((output_amp, output_phi, output_psd)).movedim(0,1).float().view((batch_size,3,ndet,data_length))
+
+
+def get_condition_2proj(embedding_proj, embedding_noproj, strain, psd, detector_names, ipca_gen, device, downsample_rate):
     inputs_proj = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen, dim=get_embd_dim(embedding_proj)).to(device)
     inputs_noproj = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen, project=False, downsample_rate=downsample_rate, dim=get_embd_dim(embedding_noproj)).to(device) 
 
@@ -62,6 +122,10 @@ def get_condition_2proj(embedding_proj, embedding_noproj, theta, strain, psd, de
 
     return condition
 
+
+##################################################
+########## Train, valid, test functions ##########
+##################################################
 def train_zukoflow(flow, embedding_proj, embedding_noproj, optimizer, dataloader, detector_names, ipca_gen, device='cpu',downsample_rate=1):
     flow.train()
     embedding_proj.train()
@@ -79,7 +143,7 @@ def train_zukoflow(flow, embedding_proj, embedding_noproj, optimizer, dataloader
         condition = torch.cat((embedding_out_proj, embedding_out_noproj), -1)
         '''
         theta = theta.to(device)
-        condition = get_condition_2proj(embedding_proj, embedding_noproj, theta, strain, psd, detector_names, ipca_gen, device, downsample_rate)
+        condition = get_condition_2proj(embedding_proj, embedding_noproj, strain, psd, detector_names, ipca_gen, device, downsample_rate)
 
         loss = -flow(condition).log_prob(theta).mean() # mean(list of losses of elements in this batch)
         loss.backward()
@@ -99,7 +163,7 @@ def eval_zukoflow(flow, embedding_proj, embedding_noproj, dataloader, detector_n
     with torch.no_grad():
         for theta, strain, psd in dataloader:
             theta = theta.to(device)
-            condition = get_condition_2proj(embedding_proj, embedding_noproj, theta, strain, psd, detector_names, ipca_gen, device, downsample_rate)
+            condition = get_condition_2proj(embedding_proj, embedding_noproj, strain, psd, detector_names, ipca_gen, device, downsample_rate)
 
             loss = -flow(condition).log_prob(theta).mean()
             loss_list.append(loss.detach())
@@ -117,7 +181,7 @@ def sample_zukoflow(flow, embedding_proj, embedding_noproj, dataset, detector_na
     with torch.no_grad():
         for theta, strain, psd in dataloader:
             theta = theta.to(device)
-            condition = get_condition_2proj(embedding_proj, embedding_noproj, theta, strain, psd, detector_names, ipca_gen, device, downsample_rate)
+            condition = get_condition_2proj(embedding_proj, embedding_noproj, strain, psd, detector_names, ipca_gen, device, downsample_rate)
 
             loss = -flow(condition).log_prob(theta)
             samples = flow(condition).sample((Nsample,))
@@ -137,7 +201,7 @@ def train_glasflow(flow, embedding_proj, embedding_noproj, optimizer, dataloader
         theta = theta.to(device)
         optimizer.zero_grad()
 
-        condition = get_condition_2proj(embedding_proj, embedding_noproj, theta, strain, psd, detector_names, ipca_gen, device, downsample_rate)
+        condition = get_condition_2proj(embedding_proj, embedding_noproj, strain, psd, detector_names, ipca_gen, device, downsample_rate)
 
         loss = -flow.log_prob(theta, conditional=condition).mean() # mean(list of losses of elements in this batch)
         loss.backward()
@@ -157,7 +221,7 @@ def eval_glasflow(flow, embedding_proj, embedding_noproj, dataloader, detector_n
     with torch.no_grad():
         for theta, strain, psd in dataloader:
             theta = theta.to(device)
-            condition = get_condition_2proj(embedding_proj, embedding_noproj, theta, strain, psd, detector_names, ipca_gen, device, downsample_rate)
+            condition = get_condition_2proj(embedding_proj, embedding_noproj, strain, psd, detector_names, ipca_gen, device, downsample_rate)
 
             loss = -flow.log_prob(theta, conditional=condition).mean()
             loss_list.append(loss.detach())
@@ -169,21 +233,22 @@ def eval_glasflow(flow, embedding_proj, embedding_noproj, dataloader, detector_n
 
 def sample_glasflow(flow, embedding_proj, embedding_noproj, dataset, detector_names, ipca_gen, device='cpu', Nsample=5000,downsample_rate=1):
     flow.eval()
-    #loss_list = []
-    #sample_list = []
-    dataloader = DataLoader(dataset, batch_size=len(dataset), shuffle=False)
+    loss_list = []
+    sample_list = []
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
     with torch.no_grad():
         for theta, strain, psd in dataloader:
             theta = theta.to(device)
-            condition = get_condition_2proj(embedding_proj, embedding_noproj, theta, strain, psd, detector_names, ipca_gen, device, downsample_rate)
-
-            loss = -flow.log_prob(theta, conditional=condition).mean()
-            samples = flow.sample(Nsample, conditional=condition)
-
-            #loss_list.append(loss.detach())
-            #sample_list.append(samples)
-
-    return samples.movedim(0,1).movedim(1,2), loss
+            condition = get_condition_2proj(embedding_proj, embedding_noproj, strain, psd, detector_names, ipca_gen, device, downsample_rate)
+            lencond = condition.shape[-1]
+            lentheta = theta.shape[-1]
+            loss = -flow.log_prob(theta.expand((Nsample,lentheta)), conditional=condition.expand((Nsample,lencond ))).mean()
+            samples = flow.sample(Nsample, conditional=condition.expand((Nsample,lencond )))
+            loss_list.append(loss.detach().cpu())
+            sample_list.append(samples.cpu().numpy())
+    samples = np.array(sample_list)
+    samples = torch.from_numpy(samples)
+    return samples.movedim(1,2), loss_list
 
 
 def make_results(sample_list, injection_parameters_list, parameter_names):

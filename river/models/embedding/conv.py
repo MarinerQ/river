@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-class ResidualBlock1D(nn.Module):
+class ResidualConvBlock1D(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=1, stride=1, padding=0, dilation=1):
         super().__init__()
         self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation)
@@ -29,7 +29,7 @@ class ResidualBlock1D(nn.Module):
         return out
 
 class EmbeddingConv1D(nn.Module):
-    def __init__(self, ndet, nout, num_blocks, use_psd = True, middle_channel = 512, kernel_size=1, stride=1, padding=0, dilation=1):
+    def __init__(self, ndet, nout, num_blocks, use_psd = True, middle_channel = 512, kernel_size=1, stride=1, padding=0, dilation=1, **kwargs):
         super().__init__()
         #self.ncomp = ncomp
         self.nout = nout
@@ -39,7 +39,7 @@ class EmbeddingConv1D(nn.Module):
             self.nchannel = 2*ndet
 
         self.middle_channel = middle_channel
-        self.layers = nn.ModuleList([self.make_layer(ResidualBlock1D, self.middle_channel, kernel_size, stride, padding, dilation) for _ in range(num_blocks)])
+        self.layers = nn.ModuleList([self.make_layer(ResidualConvBlock1D, self.middle_channel, kernel_size, stride, padding, dilation) for _ in range(num_blocks)])
         self.linear = nn.Linear(self.middle_channel, self.nout)
 
     def make_layer(self, block, out_channels, kernel_size, stride, padding, dilation):
@@ -58,7 +58,7 @@ class EmbeddingConv1D(nn.Module):
         output = self.linear(x)
         return output
 
-class ResidualBlock2D(nn.Module):
+class ResidualConvBlock2D(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=1, stride=1, padding=0, dilation=1):
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation)
@@ -85,17 +85,18 @@ class ResidualBlock2D(nn.Module):
         return out
 
 class EmbeddingConv2D(nn.Module):
-    def __init__(self, ndet, nout, num_blocks, use_psd = True, middle_channel = 16, kernel_size=1, stride=1, padding=0, dilation=1):
+    def __init__(self, nout, num_blocks, use_psd = True, middle_channel = 16, kernel_size=1, stride=1, padding=0, dilation=1, **kwargs):
         super().__init__()
         #self.ncomp = ncomp
+        #self.ndet=ndet # (ndet, ncomp) is the shape of each channel
         self.nout = nout
         if use_psd:
-            self.nchannel = 3*ndet # strains(2) + PSD (1)
+            self.nchannel = 3 # strains(2) + PSD (1)
         else:
-            self.nchannel = 2*ndet
+            self.nchannel = 2
 
         self.middle_channel = middle_channel
-        self.layers = nn.ModuleList([self.make_layer(ResidualBlock2D, self.middle_channel, kernel_size, stride, padding, dilation) for _ in range(num_blocks)])
+        self.layers = nn.ModuleList([self.make_layer(ResidualConvBlock2D, self.middle_channel, kernel_size, stride, padding, dilation) for _ in range(num_blocks)])
         self.linear = nn.Linear(self.middle_channel, self.nout)
 
     def make_layer(self, block, out_channels, kernel_size, stride, padding, dilation):

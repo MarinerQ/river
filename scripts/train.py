@@ -1,7 +1,8 @@
 # conda activate myigwn-py39
+# export OMP_NUM_THREADS=24
 import numpy as np
 import bilby 
-import pycbc 
+#import pycbc 
 import sys
 import matplotlib.pyplot as plt
 
@@ -11,10 +12,6 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torch import nn
 
-import pickle
-from sklearn.decomposition import IncrementalPCA
-import sklearn.decomposition 
-
 import river.data
 from river.data.datagenerator import DataGeneratorBilbyFD
 from river.data.dataset import DatasetStrainFD
@@ -23,213 +20,188 @@ from river.data.utils import *
 
 from river.models import embedding
 from river.models.utils import *
-from river.models.embedding.pca import project_strain_data_FDAPhi
 from river.models.embedding.conv import EmbeddingConv1D, EmbeddingConv2D
+from river.models.embedding.mlp import EmbeddingMLP1D
 
 import logging
 import sys
 import os
-PID = os.getpid()
+import json
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
+def main():
+    config_path = sys.argv[1]
+    with open(f"{config_path}/config.json", 'r') as f:
+        config = json.load(f)
 
-stdout_handler = logging.StreamHandler(sys.stdout)
-stdout_handler.setLevel(logging.DEBUG)
-stdout_handler.setFormatter(formatter)
+    config_datagenerator = config['data_generator_parameters']
+    config_training = config['training_parameters']
+    config_flow = config['model_parameters']['flow']
+    config_embd_proj = config['model_parameters']['embedding_proj']
+    config_embd_noproj = config['model_parameters']['embedding_noproj']
 
+    # Set up logger
+    PID = os.getpid()
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
 
-#logger.addHandler(stdout_handler)
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(logging.DEBUG)
+    stdout_handler.setFormatter(formatter)
 
-source_type = 'BNS'
-detector_names = ['H1', 'L1', 'V1'] 
-duration = 32
-f_low = 20
-f_ref = 20
-sampling_frequency = 2048
-waveform_approximant = 'IMRPhenomPv2_NRTidal'
-parameter_names = PARAMETER_NAMES_PRECESSINGBNS_BILBY
-PSD_type = 'bilby_default' #'zero_noise'
-use_sealgw_detector = True
+    ckpt_dir = config['ckpt_dir']
+    if not os.path.exists(ckpt_dir):
+        os.mkdir(ckpt_dir)
+        logger.warning(f"{ckpt_dir} does not exist. Made dir {ckpt_dir}.")
 
+    logfilename = f"{ckpt_dir}/logs.log"
+    file_handler = logging.FileHandler(logfilename)
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    ckpt_path = f'{ckpt_dir}/checkpoint.pickle'
 
-Nsample = 5000
-Nvalid = 200
-injection_parameters_valid = generate_BNS_injection_parameters(Nvalid,
-        a_max=0.1,
-        d_min=10,
-        d_max=100,
-        d_power=3,
-        tc_min=-0.1,
-        tc_max=0.1)
+    logger.info(f'PID={PID}.')
+    logger.info(f'Output path: {ckpt_dir}')
 
-injection_parameters_train = generate_BNS_injection_parameters(Nsample,
-        a_max=0.1,
-        d_min=10,
-        d_max=100,
-        d_power=3,
-        tc_min=-0.1,
-        tc_max=0.1)
+    # Load parameters from config file
+    detector_names = config_datagenerator['detector_names']
 
-data_generator_train = DataGeneratorBilbyFD(source_type,
-            detector_names, 
-            duration, 
-            f_low, 
-            f_ref, 
-            sampling_frequency, 
-            waveform_approximant, 
-            parameter_names,
-            PSD_type=PSD_type,
-            use_sealgw_detector=use_sealgw_detector)
+    Nsample = config_training['Nsample']
+    Nvalid = config_training['Nvalid']
 
-data_generator_valid = DataGeneratorBilbyFD(source_type,
-            detector_names, 
-            duration, 
-            f_low, 
-            f_ref, 
-            sampling_frequency, 
-            waveform_approximant, 
-            parameter_names,
-            PSD_type=PSD_type,
-            use_sealgw_detector=use_sealgw_detector)
+    #config_datagenerator_forvalid = config_datagenerator.copy()
+    #_ = config_datagenerator_forvalid.pop('Nsample')
+    injection_parameters_valid = generate_BNS_injection_parameters(Nsample = Nvalid, **config_datagenerator)
+    injection_parameters_train = generate_BNS_injection_parameters(Nsample = Nsample, **config_datagenerator)
 
+    data_generator_train = DataGeneratorBilbyFD(**config_datagenerator)
+    data_generator_valid = DataGeneratorBilbyFD(**config_datagenerator)
 
-data_generator_train.inject_signals(injection_parameters_train, Nsample)
-data_generator_train.numpy_starins()
+    logger.info(f'Generating initial training data.')
+    data_generator_train.inject_signals(injection_parameters_train, Nsample)
+    data_generator_train.numpy_starins()
 
-data_generator_valid.inject_signals(injection_parameters_valid, Nvalid)
-data_generator_valid.numpy_starins()
+    data_generator_valid.inject_signals(injection_parameters_valid, Nvalid)
+    data_generator_valid.numpy_starins()
 
-dataset_train = DatasetStrainFD(data_dict=data_generator_train.data, parameter_names=PARAMETER_NAMES_PRECESSINGBNS_BILBY)
-dataset_valid = DatasetStrainFD(data_dict=data_generator_valid.data, parameter_names=PARAMETER_NAMES_PRECESSINGBNS_BILBY)
+    dataset_train = DatasetStrainFD(data_dict=data_generator_train.data, parameter_names=config_datagenerator['context_parameter_names'])
+    dataset_valid = DatasetStrainFD(data_dict=data_generator_valid.data, parameter_names=config_datagenerator['context_parameter_names'])
 
-data_generator_train.initialize_data()
-data_generator_valid.initialize_data()
+    data_generator_train.initialize_data()
+    data_generator_valid.initialize_data()
 
-batch_size_train = 512
-batch_size_valid = 64
-train_loader = DataLoader(dataset_train, batch_size=batch_size_train, shuffle=True)
-valid_loader = DataLoader(dataset_valid, batch_size=batch_size_valid, shuffle=True)
+    batch_size_train = config_training['batch_size_train']
+    batch_size_valid = config_training['batch_size_valid']
+    logger.info(f'Nsample: {Nsample}, Nvalid: {Nvalid}')
+    logger.info(f'batch_size_train: {batch_size_train}, batch_size_valid: {batch_size_valid}')
 
+    train_loader = DataLoader(dataset_train, batch_size=batch_size_train, shuffle=True)
+    valid_loader = DataLoader(dataset_valid, batch_size=batch_size_valid, shuffle=True)
 
+    ipca_path = config['model_parameters']['ipca_path']
+    ipca_gen = load_model(ipca_path)
+    logger.info(f'IPCA loaded from {ipca_path}')
 
-ipca_gen = load_model('ipca_models/IPCA_BNSFD_10000to500_ExpUnwrap_fixtc.pickle')
+    n_components = ipca_gen.n_components
 
-n_components = ipca_gen.n_components
+    downsample_rate = config_embd_noproj['downsample_rate']
+    logger.info(f'Downsample rate: {downsample_rate}')
+    n_freq = dataset_train[0:2][1][:,:,::downsample_rate].shape[-1]
+    device=config_training['device']
 
-downsample_rate = 4
-n_freq = dataset_train[0:2][1][:,:,::downsample_rate].shape[-1]
-device='cuda'
+    embedding_proj = get_model(config_embd_proj).to(device)
+    embedding_noproj = get_model(config_embd_noproj).to(device)
+    flow = get_model(config_flow).to(device)
+    train_func, eval_func = get_train_func(flow)
+    #train_func = train_glasflow
+    #eval_func = eval_glasflow
 
-#ndet, nout, num_blocks
-embedding_proj = EmbeddingConv2D(ndet=3, nout=128, num_blocks=3, middle_channel=64).to(device)
-embedding_noproj = EmbeddingConv2D(ndet=3, nout=128, num_blocks=3, middle_channel=64).to(device)
-#flow = zuko.flows.NSF(features=17, context=256, transforms=100, hidden_features=(640, 640)).to(device)
-#flow = zuko.flows.CNF(features=17, context=256, hidden_features=(640, 640)).to(device)
-flow = CouplingNSF(n_inputs=17,n_transforms=128, n_conditional_inputs=256, n_neurons=256, batch_norm_between_transforms=True,).to(device)
+    lr = config_training['lr']
+    gamma = config_training['gamma']
+    optimizer = torch.optim.Adam(list(embedding_proj.parameters()) + list(embedding_noproj.parameters()) + list(flow.parameters()), lr=lr)
 
-train_func = train_glasflow #train_zukoflow
-eval_func = eval_glasflow #eval_zukoflow
-lr = 1e-3
-gamma = 0.5
-optimizer = torch.optim.Adam(list(embedding_proj.parameters()) + list(embedding_noproj.parameters()) + list(flow.parameters()), lr=lr)
-#sche_step_size = 20
-#scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=sche_step_size, gamma=gamma)
+    logger.info(f'Initial learning rate: {lr}')
+    logger.info(f'Gamma: {gamma}')
 
-ckpt_dir = 'trained_models/glasnsf_fixtc_2d2d'
-if not os.path.exists(ckpt_dir):
-    os.mkdir(ckpt_dir)
-    print(f"Made dir {ckpt_dir}")
+    max_epoch = config_training['max_epoch']
+    epoches_update = config_training['epoches_update']
+    epoches_pretrain = config_training['epoches_pretrain']
+    epoches_save_loss = config_training['epoches_save_loss']
+    epoches_adjust_lr = config_training['epoches_adjust_lr']
 
-logfilename = f"{ckpt_dir}/logs.log"
-file_handler = logging.FileHandler(logfilename)
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
-ckpt_path = f'{ckpt_dir}/checkpoint.pickle'
+    load_from_previous_train = config_training['load_from_previous_train']
+    if load_from_previous_train:
+        checkpoint = torch.load(ckpt_path)
+        
+        best_epoch = checkpoint['epoch']
+        start_epoch = best_epoch + 1
+        lr_updated_epoch = start_epoch
+        embedding_proj.load_state_dict(checkpoint['embd_proj_state_dict'])
+        embedding_noproj.load_state_dict(checkpoint['embd_noproj_state_dict'])
+        flow.load_state_dict(checkpoint['flow_state_dict']) 
 
-max_epoch = 2000000
-epoches_update = 20
-epoches_pretrain = 10
-epoches_save_loss = 20
-epoches_adjust_lr = 10
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        
 
-load_from_previous_train = 0
-if load_from_previous_train:
-    checkpoint = torch.load(ckpt_path)
-    
-    best_epoch = checkpoint['epoch']
-    start_epoch = best_epoch + 1
-    lr_updated_epoch = start_epoch
-    embedding_proj.load_state_dict(checkpoint['embd_proj_state_dict'])
-    embedding_noproj.load_state_dict(checkpoint['embd_noproj_state_dict'])
-    flow.load_state_dict(checkpoint['flow_state_dict']) 
+        train_losses = checkpoint['train_losses']
+        valid_losses = checkpoint['valid_losses']
 
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    #scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-    
+        logger.info(f'Loaded states from {ckpt_path}, epoch={start_epoch}.')
+    else:
+        train_losses = []
+        valid_losses = []
+        start_epoch = 0
+        lr_updated_epoch = start_epoch
 
-    train_losses = checkpoint['train_losses']
-    valid_losses = checkpoint['valid_losses']
+    npara_flow = count_parameters(flow)
+    npara_embd_proj = count_parameters(embedding_proj)
+    npara_embd_noproj = count_parameters(embedding_noproj)
+    logger.info(f'Learnable parameters: flow: {npara_flow}, embedding_PCA: {npara_embd_proj}, embedding_strain: {npara_embd_noproj}. Total: {npara_embd_noproj+npara_embd_proj+npara_flow}. ')
 
-    logger.info(f'Loaded states from {ckpt_path}, epoch={start_epoch}.')
-else:
-    train_losses = []
-    valid_losses = []
-    start_epoch = 0
-    lr_updated_epoch = start_epoch
+    logger.info(f'Training started.')
 
+    for epoch in range(start_epoch, max_epoch):    
+        if epoch % epoches_update == 0 and epoch>=epoches_pretrain:
+            data_generator_train.initialize_data()
+            injection_parameters_train = generate_BNS_injection_parameters(**config_datagenerator)
+            data_generator_train.inject_signals(injection_parameters_train, Nsample)
+            data_generator_train.numpy_starins()
+            dataset_train = DatasetStrainFD(data_dict=data_generator_train.data, parameter_names=config_datagenerator['context_parameter_names'])
+            train_loader = DataLoader(dataset_train, batch_size_train, shuffle=True)
+            logger.info(f"Training data updated at epoch={epoch}")
+            data_generator_train.initialize_data()
 
-#for g in optimizer.param_groups:
-#    g['lr'] = 5e-4
+        train_loss, train_loss_std = train_func(flow, embedding_proj, embedding_noproj, optimizer, train_loader, detector_names, ipca_gen, device=device, downsample_rate=downsample_rate)
+        valid_loss, valid_loss_std = eval_func(flow,  embedding_proj, embedding_noproj, valid_loader, detector_names, ipca_gen, device=device, downsample_rate=downsample_rate)
 
-npara_flow = count_parameters(flow)
-npara_embd_proj = count_parameters(embedding_proj)
-npara_embd_noproj = count_parameters(embedding_noproj)
-logger.info(f'Learnable parameters: flow: {npara_flow}, embedding_PCA: {npara_embd_proj}, embedding_strain: {npara_embd_noproj}. Total: {npara_embd_noproj+npara_embd_proj+npara_flow}. ')
+        train_losses.append(train_loss)
+        valid_losses.append(valid_loss)
 
-logger.info(f'Training started, PID={PID}.')
+        logger.info(f'epoch {epoch}, train loss = {train_loss}±{train_loss_std}, valid loss = {valid_loss}±{valid_loss_std}')
 
+        if valid_loss==min(valid_losses):
+            best_epoch = epoch
+            torch.save({
+                'epoch': epoch,
+                'embd_proj_state_dict': embedding_proj.state_dict(),
+                'embd_noproj_state_dict': embedding_noproj.state_dict(),
+                'flow_state_dict': flow.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'train_losses': train_losses,
+                'valid_losses': valid_losses
+                }, ckpt_path)
 
-for epoch in range(start_epoch, max_epoch):    
-    if epoch % epoches_update == 0 and epoch>=epoches_pretrain:
-        data_generator_train.initialize_data()
-        injection_parameters_train = generate_BNS_injection_parameters(Nsample, a_max=0.1, d_min=10, d_max=100, d_power=3, tc_min=-0.1, tc_max=0.1)
-        data_generator_train.inject_signals(injection_parameters_train, Nsample)
-        data_generator_train.numpy_starins()
-        dataset_train = DatasetStrainFD(data_dict=data_generator_train.data, parameter_names=PARAMETER_NAMES_PRECESSINGBNS_BILBY)
-        train_loader = DataLoader(dataset_train, batch_size_train, shuffle=True)
-        logger.info(f"Training data updated at epoch={epoch}")
-        data_generator_train.initialize_data()
+            logger.info(f'Current best epoch: {best_epoch}. Checkpoint saved.')
 
-    train_loss, train_loss_std = train_func(flow, embedding_proj, embedding_noproj, optimizer, train_loader, detector_names, ipca_gen, device=device, downsample_rate=downsample_rate)
-    valid_loss, valid_loss_std = eval_func(flow,  embedding_proj, embedding_noproj, valid_loader, detector_names, ipca_gen, device=device, downsample_rate=downsample_rate)
+        if epoch%epoches_save_loss == 0 and epoch!=0:
+            save_loss_data(train_losses, valid_losses, ckpt_dir)
+        
+        if epoch-best_epoch>=epoches_adjust_lr and epoch-lr_updated_epoch>=5:
+            adjust_lr(optimizer, gamma)
+            logger.info(f'Validation loss has not dropped for {epoch-best_epoch} epoches. Learning rate is decreased by a factor of {gamma}.')
+            lr_updated_epoch = epoch
 
-    train_losses.append(train_loss)
-    valid_losses.append(valid_loss)
+if __name__ == "__main__":
+    main()
 
-    logger.info(f'epoch {epoch}, train loss = {train_loss}±{train_loss_std}, valid loss = {valid_loss}±{valid_loss_std}')
-
-    if valid_loss==min(valid_losses):
-        best_epoch = epoch
-        torch.save({
-            'epoch': epoch,
-            'embd_proj_state_dict': embedding_proj.state_dict(),
-            'embd_noproj_state_dict': embedding_noproj.state_dict(),
-            'flow_state_dict': flow.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(), #'scheduler_state_dict': scheduler.state_dict(),
-            'train_losses': train_losses,
-            'valid_losses': valid_losses
-            }, ckpt_path)
-
-        logger.info(f'Current best epoch: {best_epoch}. Checkpoint saved.')
-
-    if epoch%epoches_save_loss == 0 and epoch!=0:
-        save_loss_data(train_losses, valid_losses, ckpt_dir)
-    
-    if epoch-best_epoch>=epoches_adjust_lr and epoch-lr_updated_epoch>=5:
-        adjust_lr(optimizer, gamma)
-        logger.info(f'Validation loss has not dropped for {epoches_adjust_lr} epoches. Learning rate is decreased by a factor of {gamma}.')
-        lr_updated_epoch = epoch
-    #scheduler.step()
