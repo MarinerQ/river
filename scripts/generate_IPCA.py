@@ -26,9 +26,9 @@ from river.models import utils as modelutils
 Nsample_template = 10000
 injection_parameters_template = generate_BNS_injection_parameters(
         Nsample_template,
-        a_max=0.1,
+        a_max=0.8,
         d_min=10,
-        d_max=100,
+        d_max=200,
         d_power=3,
         tc_min=-0.1,
         tc_max=0.1)
@@ -40,7 +40,7 @@ f_low = 20
 f_ref = 20
 sampling_frequency = 2048
 waveform_approximant = 'IMRPhenomPv2_NRTidal'
-parameter_names = PARAMETER_NAMES_PRECESSINGBNS_BILBY
+parameter_names = PARAMETER_NAMES_ALL_PRECESSINGBNS_BILBY
 PSD_type = 'bilby_default' #'zero_noise'
 use_sealgw_detector = True
 
@@ -64,4 +64,4 @@ n_components=500
 ipca_gen = embedding.pca.IPCAGenerator(data_template_generator.data['strains'], n_components, detector_names, decomposition='exp_unwrap')
 
 output_dir = 'ipca_models'
-modelutils.save_model(f'{output_dir}/IPCA_BNSFD_10000to500_ExpUnwrap_fixtc.pickle', ipca_gen)
+modelutils.save_model(f'{output_dir}/IPCA_BNSFD_10000to500_ExpUnwrap_fixtc_highspin_200Mpc.pickle', ipca_gen)

@@ -29,24 +29,24 @@ if __name__ == "__main__":
     config_dict['data_generator_parameters']['context_parameter_names'] = PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY
     config_dict['data_generator_parameters']['PSD_type'] = 'bilby_default'
     config_dict['data_generator_parameters']['use_sealgw_detector'] = True
-    config_dict['data_generator_parameters']['a_max'] = 0.1
+    config_dict['data_generator_parameters']['a_max'] = 0.8
     config_dict['data_generator_parameters']['d_min'] = 10
-    config_dict['data_generator_parameters']['d_max'] = 100
+    config_dict['data_generator_parameters']['d_max'] = 200
     config_dict['data_generator_parameters']['d_power'] = 3
     config_dict['data_generator_parameters']['tc_min'] = -0.1
     config_dict['data_generator_parameters']['tc_max'] = 0.1
 
     # training_parameters
     config_dict['training_parameters'] = {}
-    config_dict['training_parameters']['Nsample'] = 10000
+    config_dict['training_parameters']['Nsample'] = 5000
     config_dict['training_parameters']['Nvalid'] = 500
     config_dict['training_parameters']['batch_size_train'] = 1024
     config_dict['training_parameters']['batch_size_valid'] = 256
     config_dict['training_parameters']['device'] = 'cuda:1'
-    config_dict['training_parameters']['lr'] = 5e-4
+    config_dict['training_parameters']['lr'] = 1e-3
     config_dict['training_parameters']['gamma'] = 0.7
     config_dict['training_parameters']['max_epoch'] = 10000
-    config_dict['training_parameters']['epoches_update'] = 10
+    config_dict['training_parameters']['epoches_update'] = 15
     config_dict['training_parameters']['epoches_pretrain'] = 20
     config_dict['training_parameters']['epoches_save_loss'] = 5
     config_dict['training_parameters']['epoches_adjust_lr'] = 10
@@ -57,17 +57,24 @@ if __name__ == "__main__":
     # model_parameters
     config_dict['model_parameters'] = {}
     # IPCA
-    config_dict['model_parameters']['ipca_path'] = '../scripts/ipca_models/IPCA_BNSFD_10000to500_ExpUnwrap_fixtc.pickle'
+    # IPCA_BNSFD_10000to500_ExpUnwrap_fixtc_highspin_200Mpc
+    # IPCA_BNSFD_10000to500_ExpUnwrap_fixtc
+    config_dict['model_parameters']['ipca_path'] = '../scripts/ipca_models/IPCA_BNSFD_10000to500_ExpUnwrap_fixtc_highspin_200Mpc.pickle'
 
     # Embedding - projection
     config_dict['model_parameters']['embedding_proj'] = {}
-    config_dict['model_parameters']['embedding_proj']['model'] = 'EmbeddingMLP1D'
+    #config_dict['model_parameters']['embedding_proj']['model'] = 'EmbeddingMLP1D'
+    #config_dict['model_parameters']['embedding_proj']['ndet'] = 3
+    #config_dict['model_parameters']['embedding_proj']['nout'] = 128
+    #config_dict['model_parameters']['embedding_proj']['num_blocks'] = 1
+    #config_dict['model_parameters']['embedding_proj']['datalength'] = 500
+    #config_dict['model_parameters']['embedding_proj']['middle_features'] = 1024
+    # use_psd = True, middle_features = 512
+    config_dict['model_parameters']['embedding_proj']['model'] = 'EmbeddingConv1D'
     config_dict['model_parameters']['embedding_proj']['ndet'] = 3
     config_dict['model_parameters']['embedding_proj']['nout'] = 128
-    config_dict['model_parameters']['embedding_proj']['num_blocks'] = 2
-    config_dict['model_parameters']['embedding_proj']['datalength'] = 500
-    config_dict['model_parameters']['embedding_proj']['middle_features'] = 128
-    # use_psd = True, middle_features = 512
+    config_dict['model_parameters']['embedding_proj']['num_blocks'] = 8
+    config_dict['model_parameters']['embedding_proj']['middle_channel'] = 32
 
     # Embedding - no projection. Remember to add downsample_rate!
     config_dict['model_parameters']['embedding_noproj'] = {}
@@ -75,15 +82,22 @@ if __name__ == "__main__":
     config_dict['model_parameters']['embedding_noproj']['nout'] = 128
     config_dict['model_parameters']['embedding_noproj']['num_blocks'] = 8
     config_dict['model_parameters']['embedding_noproj']['downsample_rate'] = 4
-    config_dict['model_parameters']['embedding_noproj']['middle_channel'] = 64
+    config_dict['model_parameters']['embedding_noproj']['middle_channel'] = 20
+    #config_dict['model_parameters']['embedding_noproj']['model'] = 'EmbeddingConv1D'
+    #config_dict['model_parameters']['embedding_noproj']['ndet'] = 3
+    #config_dict['model_parameters']['embedding_noproj']['downsample_rate'] = 4 # if no proj
+    #config_dict['model_parameters']['embedding_noproj']['nout'] = 128
+    #config_dict['model_parameters']['embedding_noproj']['num_blocks'] = 5
+    #config_dict['model_parameters']['embedding_noproj']['middle_channel'] = 32
+    # use_psd = True, middle_channel = 512, kernel_size=1, stride=1, padding=0, dilation=1
 
     # flow
     config_dict['model_parameters']['flow'] = {}
     config_dict['model_parameters']['flow']['model'] = 'CouplingNSF'
     config_dict['model_parameters']['flow']['n_inputs'] = 17 
-    config_dict['model_parameters']['flow']['n_transforms'] = 128
+    config_dict['model_parameters']['flow']['n_transforms'] = 180
     config_dict['model_parameters']['flow']['n_conditional_inputs'] = 256
-    config_dict['model_parameters']['flow']['n_neurons'] = 256
+    config_dict['model_parameters']['flow']['n_neurons'] = 300
     config_dict['model_parameters']['flow']['batch_norm_between_transforms'] = True
 
 

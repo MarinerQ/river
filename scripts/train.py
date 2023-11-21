@@ -149,6 +149,7 @@ def main():
 
         logger.info(f'Loaded states from {ckpt_path}, epoch={start_epoch}.')
     else:
+        best_epoch = 0
         train_losses = []
         valid_losses = []
         start_epoch = 0
@@ -159,12 +160,15 @@ def main():
     npara_embd_noproj = count_parameters(embedding_noproj)
     logger.info(f'Learnable parameters: flow: {npara_flow}, embedding_PCA: {npara_embd_proj}, embedding_strain: {npara_embd_noproj}. Total: {npara_embd_noproj+npara_embd_proj+npara_flow}. ')
 
-    logger.info(f'Training started.')
+    #for g in optimizer.param_groups:
+    #    g['lr'] = 1e-4
+    #    logger.info(f'Set lr to 1e-4.')
+    #logger.info(f'Training started.')
 
     for epoch in range(start_epoch, max_epoch):    
         if epoch % epoches_update == 0 and epoch>=epoches_pretrain:
             data_generator_train.initialize_data()
-            injection_parameters_train = generate_BNS_injection_parameters(**config_datagenerator)
+            injection_parameters_train = generate_BNS_injection_parameters(Nsample=Nsample, **config_datagenerator)
             data_generator_train.inject_signals(injection_parameters_train, Nsample)
             data_generator_train.numpy_starins()
             dataset_train = DatasetStrainFD(data_dict=data_generator_train.data, parameter_names=config_datagenerator['context_parameter_names'])

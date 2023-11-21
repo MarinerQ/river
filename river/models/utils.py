@@ -7,6 +7,9 @@ from torch.utils.data import Dataset, DataLoader
 from torch import nn
 from glasflow import CouplingNSF, RealNVP
 import zuko
+from collections import OrderedDict, namedtuple
+from itertools import product
+import scipy
 
 import pandas as pd
 from .embedding.conv import EmbeddingConv1D, EmbeddingConv2D
@@ -43,7 +46,8 @@ def save_loss_data(train_losses, valid_losses, outdir, logscale='true'):
 
     if logscale:
         plt.yscale('log')
-    
+    if len(train_losses)>100:
+        plt.xscale('log')
     plt.ylim(min(min(train_losses), min(valid_losses)), 1.2*max(train_losses))
     plt.savefig(f'{outdir}/losses.png')
     np.savetxt(f'{outdir}/train_losses.txt', train_losses)
@@ -274,3 +278,90 @@ def make_results(sample_list, injection_parameters_list, parameter_names):
         result_list.append(result)
     
     return result_list
+
+
+
+def make_pp_plot(results, filename=None, save=True, confidence_interval=[0.68, 0.95, 0.997],
+                 lines=None, legend_fontsize='large', keys=None, title=True,
+                 confidence_interval_alpha=0.1, weight_list=None,
+                 **kwargs):
+    """
+    Make a P-P plot for a set of runs with injected signals.
+    Copied from bilby but fixed some bugs.
+    """
+    import matplotlib.pyplot as plt
+
+    if keys is None:
+        keys = results[0].search_parameter_keys
+
+    if weight_list is None:
+        weight_list = [None] * len(results)
+
+    credible_levels = pd.DataFrame()
+    for i, result in enumerate(results):
+        #credible_levels = credible_levels.append(
+        #    result.get_all_injection_credible_levels(keys, weights=weight_list[i]),
+        #    ignore_index=True)
+        #print(type( result.get_all_injection_credible_levels(keys, weights=weight_list[i])))
+        credible_levels = pd.concat([credible_levels, pd.DataFrame.from_records([result.get_all_injection_credible_levels(keys, weights=weight_list[i])])], ignore_index=True)
+
+    if lines is None:
+        colors = ["C{}".format(i) for i in range(8)]
+        linestyles = ["-", "--", ":"]
+        lines = ["{}{}".format(a, b) for a, b in product(linestyles, colors)]
+    if len(lines) < len(credible_levels.keys()):
+        raise ValueError("Larger number of parameters than unique linestyles")
+
+    x_values = np.linspace(0, 1, 1001)
+
+    N = len(credible_levels)
+    fig, ax = plt.subplots(figsize=(9,6))
+
+    if isinstance(confidence_interval, float):
+        confidence_interval = [confidence_interval]
+    if isinstance(confidence_interval_alpha, float):
+        confidence_interval_alpha = [confidence_interval_alpha] * len(confidence_interval)
+    elif len(confidence_interval_alpha) != len(confidence_interval):
+        raise ValueError(
+            "confidence_interval_alpha must have the same length as confidence_interval")
+
+    for ci, alpha in zip(confidence_interval, confidence_interval_alpha):
+        edge_of_bound = (1. - ci) / 2.
+        lower = scipy.stats.binom.ppf(1 - edge_of_bound, N, x_values) / N
+        upper = scipy.stats.binom.ppf(edge_of_bound, N, x_values) / N
+        # The binomial point percent function doesn't always return 0 @ 0,
+        # so set those bounds explicitly to be sure
+        lower[0] = 0
+        upper[0] = 0
+        ax.fill_between(x_values, lower, upper, alpha=alpha, color='k')
+
+    pvalues = []
+    for ii, key in enumerate(credible_levels):
+        pp = np.array([sum(credible_levels[key].values < xx) /
+                       len(credible_levels) for xx in x_values])
+        pvalue = scipy.stats.kstest(credible_levels[key], 'uniform').pvalue
+        pvalues.append(pvalue)
+
+
+        name = key
+        label = "{} ({:2.3f})".format(name, pvalue)
+        plt.plot(x_values, pp, lines[ii], label=label, **kwargs)
+
+    Pvals = namedtuple('pvals', ['combined_pvalue', 'pvalues', 'names'])
+    pvals = Pvals(combined_pvalue=scipy.stats.combine_pvalues(pvalues)[1],
+                  pvalues=pvalues,
+                  names=list(credible_levels.keys()))
+
+    if title:
+        ax.set_title("N={}, p-value={:2.4f}".format(
+            len(results), pvals.combined_pvalue))
+    ax.set_xlabel("C.I.")
+    ax.set_ylabel("Fraction of events in C.I.")
+    ax.legend(handlelength=2, labelspacing=0.25, fontsize=legend_fontsize, ncol=1, loc=(1.01,0.2))
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    fig.tight_layout()
+    if save:
+        fig.savefig(filename)
+
+    return fig, pvals
