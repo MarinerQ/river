@@ -48,7 +48,8 @@ def save_loss_data(train_losses, valid_losses, outdir, logscale='true'):
         plt.yscale('log')
     if len(train_losses)>100:
         plt.xscale('log')
-    plt.ylim(min(min(train_losses), min(valid_losses)), 1.2*max(train_losses))
+    plt.ylim(min(min(train_losses), min(valid_losses)) - 3, 1.2*max(train_losses))
+    #plt.ylim(3, 1.2*max(train_losses))
     plt.savefig(f'{outdir}/losses.png')
     np.savetxt(f'{outdir}/train_losses.txt', train_losses)
     np.savetxt(f'{outdir}/valid_losses.txt', valid_losses)

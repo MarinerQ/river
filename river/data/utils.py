@@ -120,10 +120,10 @@ def assemble_pBNS_parameters(mass_1, mass_2, chirp_mass, mass_ratio, a_1, a_2, t
 
 def generate_BNS_injection_parameters(
         Nsample,
-        a_max=0.1,
-        d_min=10,
-        d_max=100,
-        d_power=3,
+        a_max,
+        d_min,
+        d_max,
+        d_power,
         tc_min=-0.1,
         tc_max=0.1,
         lambda_min = 0,

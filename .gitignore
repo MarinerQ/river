@@ -9,6 +9,9 @@ training_data
 *.png 
 *.txt
 *.json
+*.pkl 
+*.dat 
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

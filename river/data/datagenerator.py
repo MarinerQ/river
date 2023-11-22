@@ -19,6 +19,7 @@ class DataGeneratorBilbyFD:
             PSD_type = 'bilby_default',
             custom_psd_path=None,
             use_sealgw_detector=False,
+            snr_threshold = 8,
             **kwargs):
 
         # set properties
@@ -30,6 +31,7 @@ class DataGeneratorBilbyFD:
         self.f_ref = f_ref
         self.sampling_frequency = sampling_frequency
         self.use_sealgw_detector = use_sealgw_detector
+        self.snr_threshold = snr_threshold
         self.scaled = False
         self.whitened = False
         self.numpyed = False
@@ -133,6 +135,13 @@ class DataGeneratorBilbyFD:
         self.Nsample+=1
         self.data['Nsample'][0] += 1
 
+    def get_injected_snr(self):
+        netsnr = 0
+        for key, data in self.ifos.meta_data.items():
+            netsnr += np.abs(data['matched_filter_SNR'])**2
+        netsnr = netsnr**0.5
+        return netsnr
+    
     def inject_one_signal(self, injection_parameters):
         if self.PSD_type in ['bilby_default', 'custom']:
             self.ifos.set_strain_data_from_power_spectral_densities(
@@ -152,15 +161,32 @@ class DataGeneratorBilbyFD:
             self.ifos.inject_signal(waveform_generator=self.waveform_generator,
                             parameters=injection_parameters,raise_error=False)
 
-        self.update_data(injection_parameters)
+        netsnr = self.get_injected_snr()
+        if netsnr>=self.snr_threshold:
+            self.update_data(injection_parameters)
+        else:
+            print(f'SNR={netsnr}<{self.snr_threshold}, this injection is not recorded.')
 
-    def inject_signals(self, injection_parameters_all, Ninj):
+    def inject_signals(self, injection_parameters_all, Ninj, Nneeded=None):
+        if Nneeded is None:
+            Nneeded = Ninj
+            print("Nneeded not set. Actual number of injection may be less than Ninjection due to SNR threshold. ")
+        elif Nneeded>Ninj:
+            raise ValueError("Needed > Ninj!")
+        else:
+            pass
+
         for i_inj in range(Ninj):
+            if self.Nsample >= Nneeded:
+                break 
             print(f"Injecting {i_inj}-th signal, {round(100*i_inj/Ninj,2)}% done")
             injection_parameters = {}
             for paraname in self.parameter_names:
                 injection_parameters[paraname] = injection_parameters_all[paraname][i_inj]
             self.inject_one_signal(injection_parameters)
+
+        if self.Nsample < Nneeded:
+            print(f"Actual number of injection ({self.Nsample}) is less than Ninjection due to SNR threshold. ")
 
     def get_data(self, i_data):
         if i_data>self.Nsample:

@@ -24,8 +24,10 @@ from river.models import utils as modelutils
 
 
 Nsample_template = 10000
+selection_factor = 2
+snr_threshold = 8
 injection_parameters_template = generate_BNS_injection_parameters(
-        Nsample_template,
+        Nsample_template*selection_factor,
         a_max=0.8,
         d_min=10,
         d_max=200,
@@ -53,9 +55,10 @@ data_template_generator = DataGeneratorBilbyFD(source_type,
             waveform_approximant, 
             parameter_names,
             PSD_type='zero_noise',
-            use_sealgw_detector=use_sealgw_detector)
+            use_sealgw_detector=use_sealgw_detector,
+            snr_threshold=snr_threshold)
 
-data_template_generator.inject_signals(injection_parameters_template, Nsample_template)
+data_template_generator.inject_signals(injection_parameters_template, Nsample_template*selection_factor, Nsample_template)
 
 data_template_generator.numpy_starins()
 data_template_generator.scale_strains()
@@ -65,3 +68,4 @@ ipca_gen = embedding.pca.IPCAGenerator(data_template_generator.data['strains'], 
 
 output_dir = 'ipca_models'
 modelutils.save_model(f'{output_dir}/IPCA_BNSFD_10000to500_ExpUnwrap_fixtc_highspin_200Mpc.pickle', ipca_gen)
+#modelutils.save_model(f'{output_dir}/IPCA_BNSFD_10000to500_ExpUnwrap_fixtc_lowspin_200Mpc.pickle', ipca_gen)

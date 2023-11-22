@@ -72,17 +72,20 @@ def main():
 
     #config_datagenerator_forvalid = config_datagenerator.copy()
     #_ = config_datagenerator_forvalid.pop('Nsample')
-    injection_parameters_valid = generate_BNS_injection_parameters(Nsample = Nvalid, **config_datagenerator)
-    injection_parameters_train = generate_BNS_injection_parameters(Nsample = Nsample, **config_datagenerator)
+
+    #selection_factor = 2
+    selection_factor = config_datagenerator['selection_factor'] # make sure there are enough SNR>8 samples in injection_parameters
+    injection_parameters_valid = generate_BNS_injection_parameters(Nsample = Nvalid*selection_factor, **config_datagenerator)
+    injection_parameters_train = generate_BNS_injection_parameters(Nsample = Nsample*selection_factor, **config_datagenerator)
 
     data_generator_train = DataGeneratorBilbyFD(**config_datagenerator)
     data_generator_valid = DataGeneratorBilbyFD(**config_datagenerator)
 
     logger.info(f'Generating initial training data.')
-    data_generator_train.inject_signals(injection_parameters_train, Nsample)
+    data_generator_train.inject_signals(injection_parameters_train, Ninj=Nsample*selection_factor, Nneeded = Nsample)
     data_generator_train.numpy_starins()
 
-    data_generator_valid.inject_signals(injection_parameters_valid, Nvalid)
+    data_generator_valid.inject_signals(injection_parameters_valid, Ninj=Nvalid*selection_factor, Nneeded =Nvalid)
     data_generator_valid.numpy_starins()
 
     dataset_train = DatasetStrainFD(data_dict=data_generator_train.data, parameter_names=config_datagenerator['context_parameter_names'])
@@ -129,7 +132,8 @@ def main():
     epoches_pretrain = config_training['epoches_pretrain']
     epoches_save_loss = config_training['epoches_save_loss']
     epoches_adjust_lr = config_training['epoches_adjust_lr']
-
+    epoches_adjust_lr_again = config_training['epoches_adjust_lr_again']
+    #load_from_previous_train = 1
     load_from_previous_train = config_training['load_from_previous_train']
     if load_from_previous_train:
         checkpoint = torch.load(ckpt_path)
@@ -160,16 +164,18 @@ def main():
     npara_embd_noproj = count_parameters(embedding_noproj)
     logger.info(f'Learnable parameters: flow: {npara_flow}, embedding_PCA: {npara_embd_proj}, embedding_strain: {npara_embd_noproj}. Total: {npara_embd_noproj+npara_embd_proj+npara_flow}. ')
 
+    ###
     #for g in optimizer.param_groups:
-    #    g['lr'] = 1e-4
-    #    logger.info(f'Set lr to 1e-4.')
-    #logger.info(f'Training started.')
+    #    g['lr'] = 1e-5
+    #    logger.info(f'Set lr to 1e-5.')
+
+    logger.info(f'Training started.')
 
     for epoch in range(start_epoch, max_epoch):    
         if epoch % epoches_update == 0 and epoch>=epoches_pretrain:
             data_generator_train.initialize_data()
-            injection_parameters_train = generate_BNS_injection_parameters(Nsample=Nsample, **config_datagenerator)
-            data_generator_train.inject_signals(injection_parameters_train, Nsample)
+            injection_parameters_train = generate_BNS_injection_parameters(Nsample=Nsample*selection_factor, **config_datagenerator)
+            data_generator_train.inject_signals(injection_parameters_train, Ninj=Nsample*selection_factor, Nneeded = Nsample)
             data_generator_train.numpy_starins()
             dataset_train = DatasetStrainFD(data_dict=data_generator_train.data, parameter_names=config_datagenerator['context_parameter_names'])
             train_loader = DataLoader(dataset_train, batch_size_train, shuffle=True)
@@ -201,9 +207,21 @@ def main():
         if epoch%epoches_save_loss == 0 and epoch!=0:
             save_loss_data(train_losses, valid_losses, ckpt_dir)
         
-        if epoch-best_epoch>=epoches_adjust_lr and epoch-lr_updated_epoch>=5:
-            adjust_lr(optimizer, gamma)
+        if epoch-best_epoch>=epoches_adjust_lr and epoch-lr_updated_epoch>=epoches_adjust_lr_again:
+            #adjust_lr(optimizer, gamma)
+            #logger.info(f'Validation loss has not dropped for {epoch-best_epoch} epoches. Learning rate is decreased by a factor of {gamma}.')
+            #lr_updated_epoch = epoch
+
+            checkpoint = torch.load(ckpt_path)
+            embedding_proj.load_state_dict(checkpoint['embd_proj_state_dict'])
+            embedding_noproj.load_state_dict(checkpoint['embd_noproj_state_dict'])
+            flow.load_state_dict(checkpoint['flow_state_dict']) 
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+            ntime = (epoch-lr_updated_epoch) // epoches_adjust_lr_again
+            adjust_lr(optimizer, gamma**ntime)
             logger.info(f'Validation loss has not dropped for {epoch-best_epoch} epoches. Learning rate is decreased by a factor of {gamma}.')
+            logger.info(f'Loaded model states from {ckpt_path}, and best epoch {start_epoch}. Going from there with a smaller lr.')
             lr_updated_epoch = epoch
 
 if __name__ == "__main__":

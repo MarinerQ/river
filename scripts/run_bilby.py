@@ -1,7 +1,7 @@
 # export LD_LIBRARY_PATH=/Users/qianhu/MultiNest/lib
 # nohup python peloc_TaylorF2ecc.py >nh_TaylorF2ecc.out &
 # conda activate myigwn-py39
-# export OMP_NUM_THREADS=24
+# export OMP_NUM_THREADS=8
 
 import bilby
 import numpy as np
@@ -14,9 +14,10 @@ import os
 
 duration = 32
 sampling_frequency = 2048
-label = 'test1'
+label = 'lowspin'
 outdir = f'full_PE_runs/{label}'
-
+if not os.path.exists(outdir):
+    os.mkdir(outdir)
 
 
 bilby.core.utils.setup_logger(outdir=outdir, label=label)
@@ -25,12 +26,17 @@ np.random.seed(11)
 
 
 injection_parameters = dict(
-        chirp_mass=1.7, mass_ratio=0.9, a_1=0.3, a_2=0.1, tilt_1=0.2, tilt_2=0.1,
-        phi_12=0.4, phi_jl=0, luminosity_distance=180., theta_jn=0.4, psi=2.6,
+        chirp_mass=1.74, mass_ratio=0.9, a_1=0.04, a_2=0.03, tilt_1=0.2, tilt_2=0.3,
+        phi_12=0.4, phi_jl=0.1, luminosity_distance=150., theta_jn=0.4, psi=2.6,
         phase=1.3, geocent_time=0., ra=3.3, dec=-1.2)
-injection_parameters = bilby.gw.conversion.generate_all_bbh_parameters(injection_parameters)
 
-print(injection_parameters)
+#injection_parameters = dict(
+#        chirp_mass=1.74, mass_ratio=0.9, a_1=0.4, a_2=0.3, tilt_1=1.2, tilt_2=0.8,
+#        phi_12=0.4, phi_jl=0.9, luminosity_distance=150., theta_jn=0.4, psi=2.6,
+#        phase=1.3, geocent_time=0., ra=3.3, dec=-1.2)
+#injection_parameters = bilby.gw.conversion.generate_all_bbh_parameters(injection_parameters)
+
+#print(injection_parameters)
 waveform_arguments = dict(waveform_approximant='IMRPhenomPv2_NRTidal', minimum_frequency=20., reference_frequency=20)
 
 
@@ -50,20 +56,22 @@ ifos.set_strain_data_from_power_spectral_densities(
     start_time=injection_parameters['geocent_time'] - duration + 1)
 
 ifos.inject_signal(waveform_generator=waveform_generator,
-                   parameters=injection_parameters)
+                   parameters=injection_parameters, raise_error = False)
 
 #ifos.plot_data(outdir=outdir)
-
-# %%
-
+ifos.save_data(outdir=outdir,label=label)
+ifos.to_pickle(outdir=outdir,label=label)
+priors = {}
 #priors = injection_parameters.copy()
-priors = bilby.gw.prior.BNSPriorDict()
+#priors = bilby.gw.prior.BNSPriorDict()
 #priors['chirp_mass'] = bilby.gw.prior.UniformInComponentsChirpMass(name='chirp_mass', minimum=25, maximum=100)
 #priors['mass_ratio'] = bilby.gw.prior.UniformInComponentsMassRatio(name='mass_ratio', minimum=0.125, maximum=1)
-priors['a_1'] = bilby.gw.prior.Uniform(name='a_1', minimum=0, maximum=0.8)
-priors['a_2'] = bilby.gw.prior.Uniform(name='a_2', minimum=0, maximum=0.8)
-priors['tilt_1'] = bilby.gw.prior.Sine(name='tilt_1')
-priors['tilt_2'] = bilby.gw.prior.Sine(name='tilt_2')
+#priors.pop('chirp_mass')
+#priors.pop('mass_ratio')
+priors['a_1'] = bilby.gw.prior.Uniform(name='a_1', minimum=0, maximum=0.1)
+priors['a_2'] = bilby.gw.prior.Uniform(name='a_2', minimum=0, maximum=0.1)
+priors['tilt_1'] = bilby.core.prior.analytical.Sine(name='tilt_1')
+priors['tilt_2'] = bilby.core.prior.analytical.Sine(name='tilt_2')
 priors['phi_12'] = bilby.gw.prior.Uniform(name='phi_12', minimum=0, maximum=2 * np.pi, boundary='periodic')
 priors['phi_jl'] = bilby.gw.prior.Uniform(name='phi_jl', minimum=0, maximum=2 * np.pi, boundary='periodic')
 
@@ -79,8 +87,9 @@ priors['mass_2'] = bilby.core.prior.ConditionalUniform(
 priors['lambda_1'] = bilby.gw.prior.Uniform(name='lambda_1', minimum=0, maximum=5000)
 priors['lambda_2'] = bilby.gw.prior.Uniform(name='lambda_2', minimum=0, maximum=5000)
 
-priors['luminosity_distance'] = bilby.gw.prior.UniformSourceFrame(name='luminosity_distance', minimum=10, maximum=200)
-priors['dec'] = bilby.core.prior.Cosine(name='dec')
+#priors['luminosity_distance'] = bilby.gw.prior.UniformSourceFrame(name='luminosity_distance', minimum=10, maximum=200)
+priors['luminosity_distance'] = bilby.gw.prior.UniformComovingVolume(name='luminosity_distance', minimum=10, maximum=200)
+priors['dec'] = bilby.core.prior.analytical.Cosine(name='dec')
 priors['ra'] = bilby.gw.prior.Uniform(name='ra', minimum=0, maximum=2 * np.pi, boundary='periodic')
 priors['theta_jn'] = bilby.core.prior.Sine(name='theta_jn')
 priors['psi'] = bilby.gw.prior.Uniform(name='psi', minimum=0, maximum=np.pi, boundary='periodic')
@@ -100,7 +109,7 @@ samplername = 'dynesty'
 
 result = bilby.run_sampler(
     likelihood=likelihood, priors=priors, sampler=samplername, nlive=2000, nact=10, dlogz=0.1,
-    injection_parameters=injection_parameters, outdir=outdir, label=label)
+    injection_parameters=injection_parameters, outdir=outdir, label=label, npool=4)
 
 
 '''
@@ -116,4 +125,4 @@ for key in fixed_paras:
 '''
 #result.plot_corner(parameters=plot_parameters,quantiles=[0.05,0.95])
 plot_parameters = injection_parameters.copy()
-result.plot_corner(parameters=injection_parameters,quantiles=[0.05,0.95])
+result.plot_corner(parameters=plot_parameters,quantiles=[0.05,0.95])
