@@ -67,3 +67,34 @@ class EmbeddingMLP1D(nn.Module):
         return output
 
 
+
+class ResnetMLP1D(nn.Module):
+    '''
+    For a (batch_size, nchannel, length) input, perform ResidualMLP for each (:, channel, :). 
+    '''
+    def __init__(self, nout, num_blocks, in_feature, middle_features = 128, **kwargs):
+        super().__init__()
+        self.in_feature = in_feature
+        self.nout = nout
+        self.middle_features = middle_features
+        self.num_blocks = num_blocks
+        
+        self.layers = nn.ModuleList([self.make_layer(ResidualMLPBlock1D, self.middle_features, num_blocks, iblock) for iblock in range(self.num_blocks)])
+        self.linear = nn.Linear(self.middle_features, self.nout)
+
+    def make_layer(self, block, out_features, num_blocks, iblock):
+        layers = []
+        if iblock == 0:
+            in_feature = self.in_feature
+        else:
+            in_feature = self.middle_features
+        layers.append(block(in_features = in_feature, out_features = out_features, num_blocks = num_blocks))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        output = self.linear(x)
+        return output
+
+

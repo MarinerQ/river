@@ -13,7 +13,7 @@ import scipy
 
 import pandas as pd
 from .embedding.conv import EmbeddingConv1D, EmbeddingConv2D
-from .embedding.mlp import EmbeddingMLP1D
+from .embedding.mlp import EmbeddingMLP1D, ResnetMLP1D
 
 ############################################
 ########## Data Loading functions ##########
@@ -72,14 +72,24 @@ def get_model(config_dict):
         return EmbeddingConv2D(**config_dict_cpy)
     elif model_name == 'EmbeddingMLP1D':
         return EmbeddingMLP1D(**config_dict_cpy)
+    elif model_name == 'ResnetMLP1D':
+        return ResnetMLP1D(**config_dict_cpy)
     elif model_name == 'CouplingNSF':
         return CouplingNSF(**config_dict_cpy)
+    elif model_name == 'NSF':
+        return zuko.flows.NSF(**config_dict_cpy)
+    elif model_name == 'CNF':
+        return zuko.flows.CNF(**config_dict_cpy)
+    else:
+        raise Exception("Model not implemented!")
 
 def get_train_func(flow):
     if type(flow) in [CouplingNSF, RealNVP]:
         return train_glasflow, eval_glasflow
     elif type(flow) in [zuko.flows.NSF, zuko.flows.CNF]:
         return train_zukoflow, eval_zukoflow
+    else:
+        raise Exception("Model not implemented!")
 
 def project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen, project=True, downsample_rate=1, dim=1):
     '''
@@ -90,6 +100,9 @@ def project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen, project=Tr
     '''
     strain_amp = np.abs(strain)
     strain_phi = np.unwrap(np.angle(strain) , axis=-1)
+    strain_real = np.real(strain)
+    strain_imag = np.imag(strain)
+
     n_components = ipca_gen.n_components
     batch_size = strain.shape[0]
     ndet = len(detector_names)
@@ -105,6 +118,8 @@ def project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen, project=Tr
         else:
             output_amp.append(strain_amp.numpy()[:,i,:][:,::downsample_rate])
             output_phi.append(strain_phi[:,i,:][:,::downsample_rate])
+            #output_amp.append(strain_real.numpy()[:,i,:][:,::downsample_rate])
+            #output_phi.append(strain_imag.numpy()[:,i,:][:,::downsample_rate])
             output_psd.append(psd.numpy()[:,i,:][:,::downsample_rate])
 
     output_amp = torch.from_numpy(np.array(output_amp))
@@ -127,6 +142,26 @@ def get_condition_2proj(embedding_proj, embedding_noproj, strain, psd, detector_
 
     return condition
 
+def get_condition_1proj(embedding, strain, psd, detector_names, ipca_gen, device, downsample_rate):
+    #inputs= project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen, dim=get_embd_dim(embedding)).to(device)
+    inputs = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen, project=False, downsample_rate=downsample_rate, dim=get_embd_dim(embedding)).to(device) 
+
+    embedding_out = embedding(inputs)
+    #embedding_out_noproj = embedding_noproj(inputs_noproj)
+    #condition = torch.cat((embedding_out_proj, embedding_out_noproj), -1)#.to(device)
+
+    return embedding_out.to(device)
+
+def get_condition_1projres(embedding, resnet, strain, psd, detector_names, ipca_gen, device, downsample_rate):
+    #inputs= project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen, dim=get_embd_dim(embedding)).to(device)
+    inputs = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen, project=False, downsample_rate=downsample_rate, dim=get_embd_dim(embedding)).to(device) 
+
+    embedding_out = embedding(inputs)
+    resout = resnet(embedding_out)
+    #embedding_out_noproj = embedding_noproj(inputs_noproj)
+    #condition = torch.cat((embedding_out_proj, embedding_out_noproj), -1)#.to(device)
+
+    return resout.to(device)
 
 ##################################################
 ########## Train, valid, test functions ##########
@@ -180,6 +215,8 @@ def eval_zukoflow(flow, embedding_proj, embedding_noproj, dataloader, detector_n
 
 def sample_zukoflow(flow, embedding_proj, embedding_noproj, dataset, detector_names, ipca_gen, device='cpu', Nsample=5000, downsample_rate=1):
     flow.eval()
+    embedding_proj.eval()
+    embedding_noproj.eval()
     #loss_list = []
     #sample_list = []
     dataloader = DataLoader(dataset, batch_size=len(dataset), shuffle=False)
@@ -238,6 +275,8 @@ def eval_glasflow(flow, embedding_proj, embedding_noproj, dataloader, detector_n
 
 def sample_glasflow(flow, embedding_proj, embedding_noproj, dataset, detector_names, ipca_gen, device='cpu', Nsample=5000,downsample_rate=1):
     flow.eval()
+    embedding_proj.eval()
+    embedding_noproj.eval()
     loss_list = []
     sample_list = []
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
@@ -254,6 +293,173 @@ def sample_glasflow(flow, embedding_proj, embedding_noproj, dataset, detector_na
     samples = np.array(sample_list)
     samples = torch.from_numpy(samples)
     return samples.movedim(1,2), loss_list
+
+
+def train_glasflow_v2(flow, embedding, optimizer, dataloader, detector_names, ipca_gen, device='cpu',downsample_rate=1):
+    flow.train()
+    embedding.train()
+    loss_list = []
+    for theta, strain, psd in dataloader:
+        theta = theta.to(device)
+        optimizer.zero_grad()
+
+        condition = get_condition_1proj(embedding, strain, psd, detector_names, ipca_gen, device, downsample_rate)
+
+        loss = -flow.log_prob(theta, conditional=condition).mean() # mean(list of losses of elements in this batch)
+        loss.backward()
+        optimizer.step()
+
+        loss_list.append(loss.detach())
+
+    mean_loss = torch.stack(loss_list).mean().item() # mean(list of mean losses of each batch)
+    std_loss = torch.stack(loss_list).std().item()
+    return mean_loss, std_loss
+
+def eval_glasflow_v2(flow, embedding, dataloader, detector_names, ipca_gen, device='cpu',downsample_rate=1):
+    flow.eval()
+    embedding.eval()
+    loss_list = []
+    with torch.no_grad():
+        for theta, strain, psd in dataloader:
+            theta = theta.to(device)
+            condition = get_condition_1proj(embedding, strain, psd, detector_names, ipca_gen, device, downsample_rate)
+
+            loss = -flow.log_prob(theta, conditional=condition).mean()
+            loss_list.append(loss.detach())
+
+    mean_loss = torch.stack(loss_list).mean().item()
+    std_loss = torch.stack(loss_list).std().item()
+    return mean_loss, std_loss
+
+
+def sample_glasflow_v2(flow, embedding, dataset, detector_names, ipca_gen, device='cpu', Nsample=5000,downsample_rate=1):
+    flow.eval()
+    embedding.eval()
+    loss_list = []
+    sample_list = []
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
+    with torch.no_grad():
+        for theta, strain, psd in dataloader:
+            theta = theta.to(device)
+            condition = get_condition_1proj(embedding, strain, psd, detector_names, ipca_gen, device, downsample_rate)
+            lencond = condition.shape[-1]
+            lentheta = theta.shape[-1]
+            loss = -flow.log_prob(theta.expand((Nsample,lentheta)), conditional=condition.expand((Nsample,lencond ))).mean()
+            samples = flow.sample(Nsample, conditional=condition.expand((Nsample,lencond )))
+            loss_list.append(loss.detach().cpu())
+            sample_list.append(samples.cpu().numpy())
+    samples = np.array(sample_list)
+    samples = torch.from_numpy(samples)
+    return samples.movedim(1,2), loss_list
+
+
+def train_glasflow_v3(flow, embedding, resnet, optimizer, dataloader, detector_names, ipca_gen, device='cpu',downsample_rate=1):
+    flow.train()
+    embedding.train()
+    loss_list = []
+    for theta, strain, psd in dataloader:
+        theta = theta.to(device)
+        optimizer.zero_grad()
+
+        condition = get_condition_1projres(embedding, resnet, strain, psd, detector_names, ipca_gen, device, downsample_rate)
+
+        loss = -flow.log_prob(theta, conditional=condition).mean() # mean(list of losses of elements in this batch)
+        loss.backward()
+        optimizer.step()
+
+        loss_list.append(loss.detach())
+
+    mean_loss = torch.stack(loss_list).mean().item() # mean(list of mean losses of each batch)
+    std_loss = torch.stack(loss_list).std().item()
+    return mean_loss, std_loss
+
+def eval_glasflow_v3(flow, embedding, resnet, dataloader, detector_names, ipca_gen, device='cpu',downsample_rate=1):
+    flow.eval()
+    embedding.eval()
+    loss_list = []
+    with torch.no_grad():
+        for theta, strain, psd in dataloader:
+            theta = theta.to(device)
+            condition = get_condition_1projres(embedding, resnet, strain, psd, detector_names, ipca_gen, device, downsample_rate)
+
+            loss = -flow.log_prob(theta, conditional=condition).mean()
+            loss_list.append(loss.detach())
+
+    mean_loss = torch.stack(loss_list).mean().item()
+    std_loss = torch.stack(loss_list).std().item()
+    return mean_loss, std_loss
+
+
+def sample_glasflow_v3(flow, embedding, resnet, dataset, detector_names, ipca_gen, device='cpu', Nsample=5000,downsample_rate=1):
+    flow.eval()
+    embedding.eval()
+    loss_list = []
+    sample_list = []
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
+    with torch.no_grad():
+        for theta, strain, psd in dataloader:
+            theta = theta.to(device)
+            condition = get_condition_1projres(embedding, resnet, strain, psd, detector_names, ipca_gen, device, downsample_rate)
+            lencond = condition.shape[-1]
+            lentheta = theta.shape[-1]
+            loss = -flow.log_prob(theta.expand((Nsample,lentheta)), conditional=condition.expand((Nsample,lencond ))).mean()
+            samples = flow.sample(Nsample, conditional=condition.expand((Nsample,lencond )))
+            loss_list.append(loss.detach().cpu())
+            sample_list.append(samples.cpu().numpy())
+    samples = np.array(sample_list)
+    samples = torch.from_numpy(samples)
+    return samples.movedim(1,2), loss_list
+
+
+
+def train_GlasNSFWarpper(model, optimizer, dataloader, detector_names, ipca_gen, device='cpu',downsample_rate=1):
+    model.train()
+    loss_list = []
+    for theta, strain, psd in dataloader:
+        optimizer.zero_grad()
+        theta = theta.to(device)
+        x = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen).to(device)
+        loss = -model.log_prob(theta, x).mean()
+        loss.backward()
+        optimizer.step()
+
+        loss_list.append(loss.detach())
+
+    mean_loss = torch.stack(loss_list).mean().item() # mean(list of mean losses of each batch)
+    std_loss = torch.stack(loss_list).std().item()
+    return mean_loss, std_loss
+
+def eval_GlasNSFWarpper(model, dataloader, detector_names, ipca_gen, device='cpu',downsample_rate=1):
+    model.eval()
+    loss_list = []
+    with torch.no_grad():
+        for theta, strain, psd in dataloader:
+            theta = theta.to(device)
+            x = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen).to(device)
+            loss = -model.log_prob(theta, x).mean()
+            loss_list.append(loss.detach())
+
+    mean_loss = torch.stack(loss_list).mean().item()
+    std_loss = torch.stack(loss_list).std().item()
+    return mean_loss, std_loss
+
+
+def sample_GlasNSFWarpper(model, dataset, detector_names, ipca_gen, device='cpu', Nsample=5000, downsample_rate=1):
+    model.eval()
+    #loss_list = []
+    #sample_list = []
+    dataloader = DataLoader(dataset, batch_size=len(dataset), shuffle=False)
+    with torch.no_grad():
+        for theta, strain, psd in dataloader:
+            theta = theta.to(device)
+            x = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen).to(device)
+            loss = -model.log_prob(theta, x).mean()
+            samples = model.sample((Nsample,), x)
+
+            #loss_list.append(loss.detach())
+            #sample_list.append(samples)
+
+    return samples.movedim(0,1).movedim(1,2), loss
 
 
 def make_results(sample_list, injection_parameters_list, parameter_names):
@@ -280,7 +486,24 @@ def make_results(sample_list, injection_parameters_list, parameter_names):
     
     return result_list
 
+def make_prior(injection_parameters_list, parameter_names):
+    result = bilby.gw.result.CompactBinaryCoalescenceResult()
+    injection_parameters = {}
+    posterior_dict = {}
+    search_parameter_keys = []
+    parameter_labels_with_unit = []
+    for j,paraname in enumerate(parameter_names):
+        #injection_parameters[paraname] = injection_parameters_list[paraname][i]
+        posterior_dict[paraname] = injection_parameters_list[paraname]
+        search_parameter_keys.append(paraname)
+        parameter_labels_with_unit.append(paraname)
+    
+    result.posterior = pd.DataFrame.from_dict(posterior_dict)
+    #result.injection_parameters = injection_parameters
+    result.search_parameter_keys = search_parameter_keys
+    result.parameter_labels_with_unit = parameter_labels_with_unit
 
+    return result
 
 def make_pp_plot(results, filename=None, save=True, confidence_interval=[0.68, 0.95, 0.997],
                  lines=None, legend_fontsize='large', keys=None, title=True,

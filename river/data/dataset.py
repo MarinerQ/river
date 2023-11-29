@@ -4,6 +4,9 @@ from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as transforms
 #from .utils import PARAMETER_NAMES_ALL_PRECESSINGBNS_BILBY
 
+def reparameterize_mass(mass):
+    return np.log10(mass)
+
 class DatasetStrainFD(Dataset):
     def __init__(self, data_dict, parameter_names):
         self.farray = torch.from_numpy(data_dict['farray']).float()
@@ -13,13 +16,17 @@ class DatasetStrainFD(Dataset):
 
         self.injection_parameters = np.zeros((self.Nsample, self.paradim))
         for i, parameter_name in enumerate(parameter_names):
-            self.injection_parameters[:,i] = data_dict['injection_parameters'][parameter_name]
+            if parameter_name in ['chirp_mass']:
+                self.injection_parameters[:,i] = reparameterize_mass(data_dict['injection_parameters'][parameter_name])
+            else:
+                self.injection_parameters[:,i] = data_dict['injection_parameters'][parameter_name]
         self.injection_parameters = torch.from_numpy(self.injection_parameters).float()
 
         s = np.array(list(data_dict['strains'][detname] for detname in self.detector_names ))
         psd = np.array(list(data_dict['PSDs'][detname] for detname in self.detector_names ))
         inv_asd = np.float32(1 / (psd**0.5))
-        s_whitened = np.complex64(s*inv_asd)
+        ###s_whitened = np.complex64(s*inv_asd)
+        s_whitened = np.complex64(s*1e23)
         self.inv_asd = torch.from_numpy(inv_asd*1e-23).movedim(0,1).float()
         self.strain = torch.from_numpy(s_whitened).movedim(0,1) # is complex
 

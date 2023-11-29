@@ -23,17 +23,10 @@ from river.models import embedding
 from river.models import utils as modelutils
 
 
-Nsample_template = 10000
+Nsample_template = 2000
+Nround = 25 # actual sample of training will be Nsample_template * Nround
 selection_factor = 2
 snr_threshold = 8
-injection_parameters_template = generate_BNS_injection_parameters(
-        Nsample_template*selection_factor,
-        a_max=0.8,
-        d_min=10,
-        d_max=200,
-        d_power=3,
-        tc_min=-0.1,
-        tc_max=0.1)
 
 source_type = 'BNS'
 detector_names = ['H1', 'L1', 'V1'] 
@@ -46,26 +39,44 @@ parameter_names = PARAMETER_NAMES_ALL_PRECESSINGBNS_BILBY
 PSD_type = 'bilby_default' #'zero_noise'
 use_sealgw_detector = True
 
-data_template_generator = DataGeneratorBilbyFD(source_type,
-            detector_names, 
-            duration, 
-            f_low, 
-            f_ref, 
-            sampling_frequency, 
-            waveform_approximant, 
-            parameter_names,
-            PSD_type='zero_noise',
-            use_sealgw_detector=use_sealgw_detector,
-            snr_threshold=snr_threshold)
+whiten_pca = True
+n_components=1024
+ipca_gen = embedding.pca.IPCAGenerator( n_components, detector_names, decomposition='exp_unwrap', whiten = whiten_pca)
 
-data_template_generator.inject_signals(injection_parameters_template, Nsample_template*selection_factor, Nsample_template)
+for i in range(Nround):
+        print(f'round {i}.')
+        injection_parameters_template = generate_BNS_injection_parameters(
+                Nsample_template*selection_factor,
+                a_max=0.1,
+                d_min=10,
+                d_max=200,
+                d_power=3,
+                tc_min=-0.1,
+                tc_max=0.1)
 
-data_template_generator.numpy_starins()
-data_template_generator.scale_strains()
 
-n_components=500
-ipca_gen = embedding.pca.IPCAGenerator(data_template_generator.data['strains'], n_components, detector_names, decomposition='exp_unwrap')
+        data_template_generator = DataGeneratorBilbyFD(source_type,
+                detector_names, 
+                duration, 
+                f_low, 
+                f_ref, 
+                sampling_frequency, 
+                waveform_approximant, 
+                parameter_names,
+                PSD_type='zero_noise',
+                use_sealgw_detector=use_sealgw_detector,
+                snr_threshold=snr_threshold)
+
+        data_template_generator.inject_signals(injection_parameters_template, Nsample_template*selection_factor, Nsample_template)
+
+        data_template_generator.numpy_starins()
+        #data_template_generator.scale_strains()
+        data_template_generator.whiten_strains()
+
+        
+        ipca_gen.fit(data_template_generator.data['strains'])
+        data_template_generator.initialize_data()
 
 output_dir = 'ipca_models'
-modelutils.save_model(f'{output_dir}/IPCA_BNSFD_10000to500_ExpUnwrap_fixtc_highspin_200Mpc.pickle', ipca_gen)
-#modelutils.save_model(f'{output_dir}/IPCA_BNSFD_10000to500_ExpUnwrap_fixtc_lowspin_200Mpc.pickle', ipca_gen)
+#modelutils.save_model(f'{output_dir}/IPCA_BNSFD_10000to500_ExpUnwrap_fixtc_highspin_200Mpc.pickle', ipca_gen)
+modelutils.save_model(f'{output_dir}/IPCA_BNSFD_50000to1024_ExpUnwrap_fixtc_lowspin_200Mpc.pickle', ipca_gen)

@@ -37,6 +37,7 @@ def main():
     config_training = config['training_parameters']
     config_flow = config['model_parameters']['flow']
     config_embd_proj = config['model_parameters']['embedding_proj']
+    config_embd_resnet = config['model_parameters']['embedding_resnet']
     config_embd_noproj = config['model_parameters']['embedding_noproj']
 
     # Set up logger
@@ -64,14 +65,10 @@ def main():
     logger.info(f'PID={PID}.')
     logger.info(f'Output path: {ckpt_dir}')
 
-    # Load parameters from config file
     detector_names = config_datagenerator['detector_names']
 
     Nsample = config_training['Nsample']
     Nvalid = config_training['Nvalid']
-
-    #config_datagenerator_forvalid = config_datagenerator.copy()
-    #_ = config_datagenerator_forvalid.pop('Nsample')
 
     #selection_factor = 2
     selection_factor = config_datagenerator['selection_factor'] # make sure there are enough SNR>8 samples in injection_parameters
@@ -114,15 +111,19 @@ def main():
     device=config_training['device']
 
     embedding_proj = get_model(config_embd_proj).to(device)
-    embedding_noproj = get_model(config_embd_noproj).to(device)
+    #embedding_noproj = get_model(config_embd_noproj).to(device)
+    embedding_resnet = get_model(config_embd_resnet).to(device)
     flow = get_model(config_flow).to(device)
-    train_func, eval_func = get_train_func(flow)
-    #train_func = train_glasflow
-    #eval_func = eval_glasflow
+    #train_func, eval_func = get_train_func(flow)
+    #train_func = train_glasflow_v2
+    #eval_func = eval_glasflow_v2
+    train_func = train_glasflow_v3
+    eval_func = eval_glasflow_v3
 
     lr = config_training['lr']
     gamma = config_training['gamma']
-    optimizer = torch.optim.Adam(list(embedding_proj.parameters()) + list(embedding_noproj.parameters()) + list(flow.parameters()), lr=lr)
+    ###optimizer = torch.optim.Adam(list(embedding_proj.parameters()) + list(embedding_noproj.parameters()) + list(flow.parameters()), lr=lr)
+    optimizer = torch.optim.Adam(list(embedding_proj.parameters()) + list(flow.parameters()) + list(embedding_resnet.parameters()), lr=lr)
 
     logger.info(f'Initial learning rate: {lr}')
     logger.info(f'Gamma: {gamma}')
@@ -142,7 +143,8 @@ def main():
         start_epoch = best_epoch + 1
         lr_updated_epoch = start_epoch
         embedding_proj.load_state_dict(checkpoint['embd_proj_state_dict'])
-        embedding_noproj.load_state_dict(checkpoint['embd_noproj_state_dict'])
+        #embedding_noproj.load_state_dict(checkpoint['embd_noproj_state_dict'])
+        embedding_resnet.load_state_dict(checkpoint['embd_resnet_state_dict'])
         flow.load_state_dict(checkpoint['flow_state_dict']) 
 
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -161,8 +163,11 @@ def main():
 
     npara_flow = count_parameters(flow)
     npara_embd_proj = count_parameters(embedding_proj)
-    npara_embd_noproj = count_parameters(embedding_noproj)
-    logger.info(f'Learnable parameters: flow: {npara_flow}, embedding_PCA: {npara_embd_proj}, embedding_strain: {npara_embd_noproj}. Total: {npara_embd_noproj+npara_embd_proj+npara_flow}. ')
+    npara_embd_res = count_parameters(embedding_resnet)
+    #npara_embd_noproj = count_parameters(embedding_noproj)
+    #logger.info(f'Learnable parameters: flow: {npara_flow}, embedding_PCA: {npara_embd_proj}, embedding_strain: {npara_embd_noproj}. Total: {npara_embd_noproj+npara_embd_proj+npara_flow}. ')
+    #logger.info(f'Learnable parameters: flow: {npara_flow}, embedding_PCA: {npara_embd_proj}. Total: {npara_embd_proj+npara_flow}. ')
+    logger.info(f'Learnable parameters: flow: {npara_flow}, embedding_PCA: {npara_embd_proj}, ResNet: {npara_embd_res}. Total: {npara_embd_proj+npara_flow+npara_embd_res}. ')
 
     ###
     #for g in optimizer.param_groups:
@@ -182,8 +187,16 @@ def main():
             logger.info(f"Training data updated at epoch={epoch}")
             data_generator_train.initialize_data()
 
-        train_loss, train_loss_std = train_func(flow, embedding_proj, embedding_noproj, optimizer, train_loader, detector_names, ipca_gen, device=device, downsample_rate=downsample_rate)
-        valid_loss, valid_loss_std = eval_func(flow,  embedding_proj, embedding_noproj, valid_loader, detector_names, ipca_gen, device=device, downsample_rate=downsample_rate)
+        #train_loss, train_loss_std = train_func(flow, embedding_proj, embedding_noproj, optimizer, train_loader, detector_names, ipca_gen, device=device, downsample_rate=downsample_rate)
+        #valid_loss, valid_loss_std = eval_func(flow,  embedding_proj, embedding_noproj, valid_loader, detector_names, ipca_gen, device=device, downsample_rate=downsample_rate)
+        
+        # v2
+        #train_loss, train_loss_std = train_func(flow, embedding_proj, optimizer, train_loader, detector_names, ipca_gen, device=device, downsample_rate=downsample_rate)
+        #valid_loss, valid_loss_std = eval_func(flow,  embedding_proj, valid_loader, detector_names, ipca_gen, device=device, downsample_rate=downsample_rate)
+
+        # v3
+        train_loss, train_loss_std = train_func(flow, embedding_proj, embedding_resnet, optimizer, train_loader, detector_names, ipca_gen, device=device, downsample_rate=downsample_rate)
+        valid_loss, valid_loss_std = eval_func(flow,  embedding_proj, embedding_resnet, valid_loader, detector_names, ipca_gen, device=device, downsample_rate=downsample_rate)
 
         train_losses.append(train_loss)
         valid_losses.append(valid_loss)
@@ -195,7 +208,8 @@ def main():
             torch.save({
                 'epoch': epoch,
                 'embd_proj_state_dict': embedding_proj.state_dict(),
-                'embd_noproj_state_dict': embedding_noproj.state_dict(),
+                'embd_resnet_state_dict': embedding_resnet.state_dict(),
+                #'embd_noproj_state_dict': embedding_noproj.state_dict(),
                 'flow_state_dict': flow.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'train_losses': train_losses,
@@ -208,21 +222,22 @@ def main():
             save_loss_data(train_losses, valid_losses, ckpt_dir)
         
         if epoch-best_epoch>=epoches_adjust_lr and epoch-lr_updated_epoch>=epoches_adjust_lr_again:
-            #adjust_lr(optimizer, gamma)
-            #logger.info(f'Validation loss has not dropped for {epoch-best_epoch} epoches. Learning rate is decreased by a factor of {gamma}.')
-            #lr_updated_epoch = epoch
+            adjust_lr(optimizer, gamma)
+            logger.info(f'Validation loss has not dropped for {epoch-best_epoch} epoches. Learning rate is decreased by a factor of {gamma}.')
+            lr_updated_epoch = epoch
 
+            '''
             checkpoint = torch.load(ckpt_path)
             embedding_proj.load_state_dict(checkpoint['embd_proj_state_dict'])
             embedding_noproj.load_state_dict(checkpoint['embd_noproj_state_dict'])
             flow.load_state_dict(checkpoint['flow_state_dict']) 
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-
             ntime = (epoch-lr_updated_epoch) // epoches_adjust_lr_again
             adjust_lr(optimizer, gamma**ntime)
             logger.info(f'Validation loss has not dropped for {epoch-best_epoch} epoches. Learning rate is decreased by a factor of {gamma}.')
-            logger.info(f'Loaded model states from {ckpt_path}, and best epoch {start_epoch}. Going from there with a smaller lr.')
+            logger.info(f'Loaded model states from {ckpt_path}, and best epoch {best_epoch}. Going from there with a smaller lr.')
             lr_updated_epoch = epoch
+            '''
 
 if __name__ == "__main__":
     main()

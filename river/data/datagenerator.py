@@ -20,6 +20,7 @@ class DataGeneratorBilbyFD:
             custom_psd_path=None,
             use_sealgw_detector=False,
             snr_threshold = 8,
+            ipca=None,
             **kwargs):
 
         # set properties
@@ -106,6 +107,9 @@ class DataGeneratorBilbyFD:
         # set data
         self.initialize_data()
 
+        # set precalculated waveforms
+        self.initialize_waveforms()
+        self.ipca = ipca
 
     def initialize_data(self):
         self.data = {}
@@ -246,3 +250,130 @@ class DataGeneratorBilbyFD:
         for detname in self.detector_names:
             self.data['strains'][detname] /= self.data['PSDs'][detname]**0.5
         self.whitened = True
+
+
+    #### to deal with large training set, we should generate waveforms and store them in disk
+    #### when inject, read those waveforms and apply extrinsic parameters
+    def initialize_waveforms(self):
+        self.waveforms = {}
+        self.waveforms['farray'] = self.frequency_array_masked
+        self.waveforms['waveform_polarizations'] = [] # should .append({'plus': {}, 'cross': {} })
+
+        self.Nwaveform = 0
+        #self.waveforms['SNR_at_1Mpc'] = []
+
+    def generate_one_waveform(self, injection_parameters):
+        '''
+        Generate a waveform with "intrisic" parameters. 
+        "Extrisic" parameters (t_c, ra, dec, psi, d_L) are not involved in waveform generation. They will be applied during injection. 
+        '''
+        injection_parameters['luminosity_distance'] = 1 # fix distance as it scales amplitude 
+        wf = self.waveform_generator.frequency_domain_strain(injection_parameters)
+        wf_masked = {}
+        for key, mode in wf.items():
+            h = mode[self.frequency_mask]
+            amp = np.abs(h)
+            phase = np.unwrap(np.angle(h))
+            wf_masked[key] = {}
+
+            if self.ipca:
+                amp_proj = np.dot(amp, self.ipca[key]['amplitude'].components_.T)
+                phase_proj = np.dot(phase, self.ipca[key]['phase'].components_.T)
+                wf_masked[key]['amplitude'] = amp_proj
+                wf_masked[key]['phase'] = phase_proj
+            else:
+                wf_masked[key]['amplitude'] = amp 
+                wf_masked[key]['phase'] = phase
+        self.waveforms['waveform_polarizations'].append(wf_masked)
+        
+
+    def generate_waveforms(self, injection_parameters_all):
+        for injection_parameters in injection_parameters_all:
+            self.generate_one_waveform(injection_parameters)
+            self.Nwaveform += 1
+    
+    def reconstruct_waveforms(self, wave_dict, dL = 1):
+        '''
+        wave_dict should have to keys 'plus' and 'cross', values of which are also dict, with compressed amplidute and phase
+        '''
+        waveform_polarizations = {}
+        for polarization, waveform_component in wave_dict.items():
+            if self.ipca:
+                ipca_A = self.ipca[polarization]['amplitude']
+                ipca_phi = self.ipca[polarization]['phase']
+                #A_reconstructed = np.dot(ipca_A.transform([waveform_component['amplitude']])[0], ipca_A.components_) / dL
+                #phi_reconstructed = np.dot(ipca_phi.transform([waveform_component['phase']])[0], ipca_phi.components_)
+                A_reconstructed = np.dot(waveform_component['amplitude'], ipca_A.components_) / dL
+                phi_reconstructed = np.dot(waveform_component['phase'], ipca_phi.components_)
+                waveform_polarizations[polarization] = A_reconstructed * np.exp(1j *  phi_reconstructed)
+            else:
+                waveform_polarizations[polarization] = waveform_component['amplitude'] * np.exp(1j *  waveform_component['phase'])
+
+        return waveform_polarizations
+    
+    def inject_one_signal_from_waveforms(self, injection_parameters, injection_polarizations_compressed):
+        if self.PSD_type in ['bilby_default', 'custom']:
+            self.ifos.set_strain_data_from_power_spectral_densities(
+                sampling_frequency=self.sampling_frequency, duration=self.duration,
+                start_time=injection_parameters['geocent_time'] - self.duration + 1)
+        elif self.PSD_type == 'zero_noise':
+            self.ifos.set_strain_data_from_zero_noise(
+                sampling_frequency=self.sampling_frequency, duration=self.duration,
+                start_time=injection_parameters['geocent_time'] - self.duration + 1)
+        else:
+            raise Exception("Under development!")
+
+        injection_polarizations = self.reconstruct_waveforms(injection_polarizations_compressed,
+                                                             dL = injection_parameters['luminosity_distance'])
+        
+        if self.use_sealgw_detector:
+            self.ifos.inject_signal(injection_polarizations=injection_polarizations,
+                            parameters=injection_parameters,raise_error=False, print_snr=False, print_para=False)
+        else:
+            self.ifos.inject_signal(injection_polarizations=injection_polarizations,
+                            parameters=injection_parameters,raise_error=False)
+
+        netsnr = self.get_injected_snr()
+        if netsnr>=self.snr_threshold:
+            self.update_data(injection_parameters)
+        else:
+            print(f'SNR={netsnr}<{self.snr_threshold}, this injection is not recorded.')
+
+
+    
+
+    def inject_signals_from_waveforms(self, injection_parameters_all, Ninj, Nneeded=None):
+        '''
+        injection_parameters_all: injection para dict that contains t_c, ra, dec, psi, d_L. Others are not used.
+        '''
+        if Nneeded is None:
+            Nneeded = Ninj
+            print("Nneeded not set. Actual number of injection may be less than Ninjection due to SNR threshold. ")
+        elif Nneeded>Ninj:
+            raise ValueError("Needed > Ninj!")
+        else:
+            pass
+
+        for i_inj in range(Ninj):
+            if self.Nsample >= Nneeded:
+                break 
+            print(f"Injecting {i_inj}-th signal, {round(100*i_inj/Ninj,2)}% done")
+            injection_parameters = {}
+            for paraname in self.parameter_names:
+                injection_parameters[paraname] = injection_parameters_all[paraname][i_inj]
+
+            injection_polarizations_compressed = self.waveforms['waveform_polarizations'][i_inj]
+            self.inject_one_signal_from_waveforms(injection_parameters, injection_polarizations_compressed)
+
+        if self.Nsample < Nneeded:
+            print(f"Actual number of injection ({self.Nsample}) is less than Ninjection due to SNR threshold. ")
+
+        return 
+    
+    def save_waveform_data(self, filepath):
+        save_dict_to_hdf5(self.waveforms, filepath)
+        
+    def load_waveform_data(self, filepath):
+        wf = load_dict_from_hdf5(filepath)
+        self.waveforms = wf 
+    
