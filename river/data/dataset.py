@@ -4,6 +4,7 @@ from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as transforms
 #from .utils import PARAMETER_NAMES_ALL_PRECESSINGBNS_BILBY
 from .utils import * 
+#from ..models.utils import project_strain_data_FDAPhi
 
 def reparameterize_mass(mass):
     return np.log10(mass)
@@ -51,7 +52,7 @@ class DatasetStrainFDFromPreCalSVDWF(Dataset):
     '''
     From pre-calculated waveforms, stored in SVD
     '''
-    def __init__(self, precalwf_list,  parameter_names, data_generator, dmin=10, dmax=200, dpower=1):
+    def __init__(self, precalwf_list,  parameter_names, data_generator, ipca_gen, dmin=10, dmax=200, dpower=1):
         #self.farray = torch.from_numpy(data_dict['farray']).float()
 
         self.precalwf_list = precalwf_list
@@ -67,7 +68,7 @@ class DatasetStrainFDFromPreCalSVDWF(Dataset):
         self.paradim = len(parameter_names)
         self.data_generator = data_generator
         self.detector_names = data_generator.detector_names
-
+        self.ipca_gen = ipca_gen
 
     def __len__(self):
         return self.Nsample
@@ -93,8 +94,10 @@ class DatasetStrainFDFromPreCalSVDWF(Dataset):
         strain = torch.from_numpy(s_whitened).movedim(0,1)[0] # is complex
         theta = self.get_theta(injection_parameters)
 
+        x = self._project_strain_data_FDAPhi(strain, inv_asd, self.detector_names, self.ipca_gen)
         self.data_generator.initialize_data()
-        return theta.clone().detach(), strain.clone().detach(), inv_asd.clone().detach()
+        #return theta.clone().detach(), strain.clone().detach(), inv_asd.clone().detach()
+        return theta.clone().detach(), x.squeeze(0).clone().detach()
 
     def get_wf_index(self, index):
         index_precalwf_list = index // self.sample_per_file
@@ -121,6 +124,48 @@ class DatasetStrainFDFromPreCalSVDWF(Dataset):
                 theta.append(tt)
         
         return torch.from_numpy(np.array(theta)).float()
+
+    def _project_strain_data_FDAPhi(self, strain, psd, detector_names, ipca_gen, project=True, downsample_rate=1, dim=1):
+        '''
+        strain: DatasetStrainFD in batches, e.g. DatasetStrainFD[0:10]
+        psd: strain-like
+        detector_names: DatasetStrainFD.detector_names
+        ipca_gen: IPCAGenerator
+        '''
+        strain = np.expand_dims(strain, 0)
+        psd = np.expand_dims(psd, 0)
+        strain_amp = np.abs(strain)
+        strain_phi = np.unwrap(np.angle(strain) , axis=-1)
+        strain_real = np.real(strain)
+        strain_imag = np.imag(strain)
+
+        n_components = ipca_gen.n_components
+        batch_size = strain.shape[0]
+        ndet = len(detector_names)
+
+        output_amp = []
+        output_phi = []
+        output_psd = []
+        for i,detname in enumerate(detector_names):
+            if project:
+                output_amp.append(ipca_gen.project(strain_amp[:,i,:], detname, 'amplitude'))
+                output_phi.append(ipca_gen.project(strain_phi[:,i,:], detname, 'phase'))
+                output_psd.append(ipca_gen.project(psd[:,i,:], detname, 'amplitude'))
+            else:
+                output_amp.append(strain_amp.numpy()[:,i,:][:,::downsample_rate])
+                output_phi.append(strain_phi[:,i,:][:,::downsample_rate])
+                #output_amp.append(strain_real.numpy()[:,i,:][:,::downsample_rate])
+                #output_phi.append(strain_imag.numpy()[:,i,:][:,::downsample_rate])
+                output_psd.append(psd.numpy()[:,i,:][:,::downsample_rate])
+
+        output_amp = torch.from_numpy(np.array(output_amp))
+        output_phi = torch.from_numpy(np.array(output_phi))
+        output_psd = torch.from_numpy(np.array(output_psd))
+        data_length = output_amp.shape[-1]
+        if dim==1:
+            return torch.cat((output_amp, output_phi, output_psd)).movedim(0,1).float()
+        elif dim==2:
+            return torch.cat((output_amp, output_phi, output_psd)).movedim(0,1).float().view((batch_size,3,ndet,data_length))
 
 class DatasetStrainFDFromFolder(Dataset):
     def __init__(self, data_folder, filename_prefix,  parameter_names, ipca, data_generator, nbatch = 100, file_per_batch = 1000, sample_per_file = 10):

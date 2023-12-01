@@ -62,7 +62,7 @@ if __name__ == "__main__":
     #config_dict['training_parameters']['Nsample'] = 10000
     #config_dict['training_parameters']['Nvalid'] = 500
     config_dict['training_parameters']['Ntest'] = 10
-    config_dict['training_parameters']['batch_size_train'] = 40960
+    config_dict['training_parameters']['batch_size_train'] = 4096
     config_dict['training_parameters']['batch_size_valid'] = 512
     config_dict['training_parameters']['batch_size_test'] = 10
     config_dict['training_parameters']['device'] = 'cuda:1'

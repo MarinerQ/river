@@ -420,10 +420,11 @@ def sample_glasflow_v3(flow, embedding, resnet, dataset, detector_names, ipca_ge
 def train_GlasNSFWarpper(model, optimizer, dataloader, detector_names, ipca_gen, device='cpu',downsample_rate=1):
     model.train()
     loss_list = []
-    for theta, strain, psd in dataloader:
+    for theta, x in dataloader:
         optimizer.zero_grad()
         theta = theta.to(device)
-        x = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen).to(device)
+        x = x.to(device)
+        #x = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen).to(device)
         loss = -model.log_prob(theta, x).mean()
         loss.backward()
         optimizer.step()
@@ -438,9 +439,10 @@ def eval_GlasNSFWarpper(model, dataloader, detector_names, ipca_gen, device='cpu
     model.eval()
     loss_list = []
     with torch.no_grad():
-        for theta, strain, psd in dataloader:
+        for theta, x in dataloader:
             theta = theta.to(device)
-            x = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen).to(device)
+            x = x.to(device)
+            #x = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen).to(device)
             loss = -model.log_prob(theta, x).mean()
             loss_list.append(loss.detach())
 
@@ -455,9 +457,10 @@ def sample_GlasNSFWarpper(model, dataset, detector_names, ipca_gen, device='cpu'
     #sample_list = []
     dataloader = DataLoader(dataset, batch_size=len(dataset), shuffle=False)
     with torch.no_grad():
-        for theta, strain, psd in dataloader:
+        for theta, x in dataloader:
             theta = theta.to(device)
-            x = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen).to(device)
+            x = x.to(device)
+            #x = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen).to(device)
             loss = -model.log_prob(theta, x).mean()
             samples = model.sample((Nsample,), x)
 

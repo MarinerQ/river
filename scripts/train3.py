@@ -88,14 +88,18 @@ def main():
     data_generator_test.inject_signals(injection_parameters_test, Ninj=Ntest*selection_factor, Nneeded =Ntest)
     data_generator_test.numpy_starins()
 
+    ipca_path = config['model_parameters']['ipca_path']
+    ipca_gen = load_model(ipca_path)
+    logger.info(f'IPCA loaded from {ipca_path}')
+
 
     logger.info(f'Loading precalculated waveforms.')
     train_precalwf_list = get_precalwf_list(**config_precalwf['train'])
     valid_precalwf_list = get_precalwf_list(**config_precalwf['valid'])
     
-    dataset_train = DatasetStrainFDFromPreCalSVDWF(train_precalwf_list, config_datagenerator['context_parameter_names'], data_generator_train,
+    dataset_train = DatasetStrainFDFromPreCalSVDWF(train_precalwf_list, config_datagenerator['context_parameter_names'], data_generator_train,ipca_gen=ipca_gen,
                                                     dmin=config_datagenerator['d_min'], dmax=config_datagenerator['d_max'], dpower=config_datagenerator['d_power'])
-    dataset_valid = DatasetStrainFDFromPreCalSVDWF(valid_precalwf_list, config_datagenerator['context_parameter_names'], data_generator_valid,
+    dataset_valid = DatasetStrainFDFromPreCalSVDWF(valid_precalwf_list, config_datagenerator['context_parameter_names'], data_generator_valid,ipca_gen=ipca_gen,
                                                     dmin=config_datagenerator['d_min'], dmax=config_datagenerator['d_max'], dpower=config_datagenerator['d_power'])
     dataset_test = DatasetStrainFD(data_dict=data_generator_test.data, parameter_names=config_datagenerator['context_parameter_names'])
 
@@ -110,10 +114,7 @@ def main():
     valid_loader = DataLoader(dataset_valid, batch_size=batch_size_valid, shuffle=True)
     test_loader = DataLoader(dataset_test, batch_size=batch_size_test, shuffle=False)
 
-    ipca_path = config['model_parameters']['ipca_path']
-    ipca_gen = load_model(ipca_path)
-    logger.info(f'IPCA loaded from {ipca_path}')
-
+    
     n_components = ipca_gen.n_components
 
     #downsample_rate = config_embd_noproj['downsample_rate']
