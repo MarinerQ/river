@@ -150,3 +150,13 @@ def generate_BNS_injection_parameters(
                                                          theta_jn, luminosity_distance, ra, dec, psi, phase, geocent_time)
 
     return injection_parameters_all
+
+
+def get_precalwf_list(folder, nbatch, file_per_batch, filename_prefix, **kwargs):
+    file_list = []
+    for ibatch in range(nbatch):
+        for ifile in range(file_per_batch):
+            filename = f"{folder}/batch{ibatch}/{filename_prefix}_{ifile}.h5"
+            wf_dict = load_dict_from_hdf5(filename)
+            file_list.append(wf_dict)
+    return file_list

@@ -4,6 +4,7 @@ import spiir.io
 #import utils as datautils
 from .utils import load_dict_from_hdf5, save_dict_to_hdf5
 import sealgw.simulation as sealsim
+import pickle
 
 class DataGeneratorBilbyFD:
     def __init__(self,
@@ -109,7 +110,12 @@ class DataGeneratorBilbyFD:
 
         # set precalculated waveforms
         self.initialize_waveforms()
-        self.ipca = ipca
+        if type(ipca) == str:
+            with open(ipca, 'rb') as f:
+                model = pickle.load(f)
+            self.ipca = model.pca_dict
+        else:
+            self.ipca = ipca
 
     def initialize_data(self):
         self.data = {}
@@ -256,11 +262,30 @@ class DataGeneratorBilbyFD:
     #### when inject, read those waveforms and apply extrinsic parameters
     def initialize_waveforms(self):
         self.waveforms = {}
-        self.waveforms['farray'] = self.frequency_array_masked
-        self.waveforms['waveform_polarizations'] = [] # should .append({'plus': {}, 'cross': {} })
+        #self.waveforms['farray'] = self.frequency_array_masked
+        self.waveforms['waveform_polarizations'] = {}
+        for mode in ['plus', 'cross']:
+            self.waveforms['waveform_polarizations'][mode] = {}
+            for part in ['amplitude', 'phase']:
+                self.waveforms['waveform_polarizations'][mode][part] = []
 
+        self.waveforms['injection_parameters'] = {}
+        for paraname in self.parameter_names:
+            if paraname not in ['luminosity_distance', 'ra', 'dec', 'psi', 'geocent_time']:
+                self.waveforms['injection_parameters'][paraname] = []
         self.Nwaveform = 0
         #self.waveforms['SNR_at_1Mpc'] = []
+
+    def update_waveforms(self, injection_parameters, wave_dict):
+        for paraname in self.parameter_names:
+            if paraname not in ['luminosity_distance', 'ra', 'dec', 'psi', 'geocent_time']:
+                self.waveforms['injection_parameters'][paraname].append(injection_parameters[paraname])
+
+        for mode in ['plus', 'cross']:
+            for part in ['amplitude', 'phase']:
+                self.waveforms['waveform_polarizations'][mode][part].append(wave_dict[mode][part])
+
+        self.Nwaveform += 1
 
     def generate_one_waveform(self, injection_parameters):
         '''
@@ -272,7 +297,7 @@ class DataGeneratorBilbyFD:
         wf_masked = {}
         for key, mode in wf.items():
             h = mode[self.frequency_mask]
-            amp = np.abs(h)
+            amp = np.abs(h) * 1e23
             phase = np.unwrap(np.angle(h))
             wf_masked[key] = {}
 
@@ -284,13 +309,21 @@ class DataGeneratorBilbyFD:
             else:
                 wf_masked[key]['amplitude'] = amp 
                 wf_masked[key]['phase'] = phase
-        self.waveforms['waveform_polarizations'].append(wf_masked)
+
+        self.update_waveforms(injection_parameters, wf_masked)
+
+        
         
 
     def generate_waveforms(self, injection_parameters_all):
-        for injection_parameters in injection_parameters_all:
+        N = len(injection_parameters_all['chirp_mass'])
+        for i in range(N):
+            injection_parameters = {}
+            for paraname in self.parameter_names:
+                injection_parameters[paraname] = injection_parameters_all[paraname][i]
+
             self.generate_one_waveform(injection_parameters)
-            self.Nwaveform += 1
+            
     
     def reconstruct_waveforms(self, wave_dict, dL = 1):
         '''
@@ -303,11 +336,11 @@ class DataGeneratorBilbyFD:
                 ipca_phi = self.ipca[polarization]['phase']
                 #A_reconstructed = np.dot(ipca_A.transform([waveform_component['amplitude']])[0], ipca_A.components_) / dL
                 #phi_reconstructed = np.dot(ipca_phi.transform([waveform_component['phase']])[0], ipca_phi.components_)
-                A_reconstructed = np.dot(waveform_component['amplitude'], ipca_A.components_) / dL
+                A_reconstructed = np.dot(waveform_component['amplitude'], ipca_A.components_) / dL / 1e23
                 phi_reconstructed = np.dot(waveform_component['phase'], ipca_phi.components_)
                 waveform_polarizations[polarization] = A_reconstructed * np.exp(1j *  phi_reconstructed)
             else:
-                waveform_polarizations[polarization] = waveform_component['amplitude'] * np.exp(1j *  waveform_component['phase'])
+                waveform_polarizations[polarization] = waveform_component['amplitude'] / dL / 1e23 * np.exp(1j *  waveform_component['phase'])
 
         return waveform_polarizations
     
@@ -325,6 +358,10 @@ class DataGeneratorBilbyFD:
 
         injection_polarizations = self.reconstruct_waveforms(injection_polarizations_compressed,
                                                              dL = injection_parameters['luminosity_distance'])
+        # unmask waveforms
+        for kk,pp in injection_polarizations.items():
+            append_zeros = np.zeros(len(self.frequency_array) - len(self.frequency_array_masked))
+            injection_polarizations[kk] = np.append(append_zeros, pp)
         
         if self.use_sealgw_detector:
             self.ifos.inject_signal(injection_polarizations=injection_polarizations,
@@ -336,10 +373,10 @@ class DataGeneratorBilbyFD:
         netsnr = self.get_injected_snr()
         if netsnr>=self.snr_threshold:
             self.update_data(injection_parameters)
+            return 1
         else:
             print(f'SNR={netsnr}<{self.snr_threshold}, this injection is not recorded.')
-
-
+            return 0
     
 
     def inject_signals_from_waveforms(self, injection_parameters_all, Ninj, Nneeded=None):
@@ -358,17 +395,31 @@ class DataGeneratorBilbyFD:
             if self.Nsample >= Nneeded:
                 break 
             print(f"Injecting {i_inj}-th signal, {round(100*i_inj/Ninj,2)}% done")
-            injection_parameters = {}
-            for paraname in self.parameter_names:
-                injection_parameters[paraname] = injection_parameters_all[paraname][i_inj]
-
-            injection_polarizations_compressed = self.waveforms['waveform_polarizations'][i_inj]
+            injection_parameters = self.get_one_injection_parameters(i_inj, injection_parameters_all)
+            injection_polarizations_compressed = self.get_one_waveform(i_inj, self.waveforms['waveform_polarizations'])
             self.inject_one_signal_from_waveforms(injection_parameters, injection_polarizations_compressed)
 
         if self.Nsample < Nneeded:
             print(f"Actual number of injection ({self.Nsample}) is less than Ninjection due to SNR threshold. ")
 
         return 
+
+
+    def rearrange_waveforms_for_ipca(self, datagenwaveform):
+        '''
+        datagenwaveform: self.waveforms['waveform_polarizations']
+
+        the output can be used in ipca_gen.fit() as input
+        '''
+        rearranged_waveforms = {}
+        rearranged_waveforms['plus'] = []
+        rearranged_waveforms['cross'] = []
+
+        for ii,dd in enumerate(datagenwaveform):
+            rearranged_waveforms['plus'].append(dd['plus']['amplitude'] * np.exp(1j*dd['plus']['phase']))
+            rearranged_waveforms['cross'].append(dd['cross']['amplitude'] * np.exp(1j*dd['cross']['phase']))
+
+        return rearranged_waveforms
     
     def save_waveform_data(self, filepath):
         save_dict_to_hdf5(self.waveforms, filepath)
@@ -377,3 +428,24 @@ class DataGeneratorBilbyFD:
         wf = load_dict_from_hdf5(filepath)
         self.waveforms = wf 
     
+
+
+    def get_one_injection_parameters(self, index, parameter_list, is_intrinsic_only=False):
+        injection_parameters = {}
+        
+        for paraname in self.parameter_names:
+            if is_intrinsic_only:
+                if paraname in [ 'ra', 'dec', 'psi', 'luminosity_distance', 'geocent_time']:
+                    continue
+            injection_parameters[paraname] = parameter_list[paraname][index]
+
+        return injection_parameters
+    
+    def get_one_waveform(self, index, waveform_list):
+        polarizations = {}
+        for mode in ['plus', 'cross']:
+            polarizations[mode] = {}
+            for part in ['amplitude', 'phase']:
+                polarizations[mode][part] = waveform_list[mode][part][index]
+
+        return polarizations
