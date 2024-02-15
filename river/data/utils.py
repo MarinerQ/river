@@ -128,6 +128,7 @@ def generate_BNS_injection_parameters(
         tc_max=0.1,
         lambda_min = 0,
         lambda_max = 5000,
+        intrinsic_only=False,
         **kwargs):
     mass_1, mass_2 = generate_random_component_mass(Nsample, 1.1, 3)
     chirp_mass = bilby.gw.conversion.component_masses_to_chirp_mass(mass_1, mass_2)
@@ -144,6 +145,13 @@ def generate_BNS_injection_parameters(
     lambda_tilde = bilby.gw.conversion.lambda_1_lambda_2_to_lambda_tilde(lambda_1, lambda_2, mass_1, mass_2)
     delta_lambda_tilde = bilby.gw.conversion.lambda_1_lambda_2_to_delta_lambda_tilde(lambda_1, lambda_2, mass_1, mass_2)
 
+    if intrinsic_only:
+        luminosity_distance = np.ones(Nsample)
+        geocent_time = np.zeros(Nsample)
+        ra = np.zeros(Nsample)
+        dec = np.zeros(Nsample)
+        psi = np.zeros(Nsample)
+        
     injection_parameters_all = assemble_pBNS_parameters(mass_1, mass_2, chirp_mass, mass_ratio, 
                                                          a_1, a_2, tilt_1, tilt_2, phi_12, phi_jl, 
                                                          lambda_1, lambda_2, lambda_tilde, delta_lambda_tilde, 
@@ -151,6 +159,49 @@ def generate_BNS_injection_parameters(
 
     return injection_parameters_all
 
+def generate_2dBNS_injection_parameters(
+        Nsample,
+        a_max,
+        d_min,
+        d_max,
+        d_power,
+        tc_min=-0.1,
+        tc_max=0.1,
+        lambda_min = 0,
+        lambda_max = 5000,
+        **kwargs):
+    mass_1, mass_2 = generate_random_component_mass(Nsample, 1.1, 3)
+    chirp_mass = bilby.gw.conversion.component_masses_to_chirp_mass(mass_1, mass_2)
+    mass_ratio = mass_2/mass_1
+    a_1 = np.zeros(Nsample)
+    a_2 = np.zeros(Nsample)
+    tilt_1  = np.zeros(Nsample) 
+    tilt_2 = np.zeros(Nsample)
+    phi_12 = np.zeros(Nsample)
+    phi_jl = np.zeros(Nsample)
+
+    luminosity_distance  = np.zeros(Nsample) + 40
+    theta_jn = np.zeros(Nsample)
+    ra = np.zeros(Nsample)
+    dec = np.zeros(Nsample)
+    psi = np.zeros(Nsample)
+    phase  = np.zeros(Nsample)
+
+    geocent_time = np.zeros(Nsample)
+    #lambda_tilde = np.random.uniform(0, 1000, Nsample)
+    #delta_lambda_tilde = np.random.uniform(-5000, 5000, Nsample)
+    #lambda_1, lambda_2 = bilby.gw.conversion.lambda_tilde_delta_lambda_tilde_to_lambda_1_lambda_2(lambda_tilde, delta_lambda_tilde, mass_1, mass_2)
+    lambda_1 = np.zeros(Nsample) + 435
+    lambda_2 = np.zeros(Nsample) + 425
+    lambda_tilde = bilby.gw.conversion.lambda_1_lambda_2_to_lambda_tilde(lambda_1, lambda_2, mass_1, mass_2)
+    delta_lambda_tilde = bilby.gw.conversion.lambda_1_lambda_2_to_delta_lambda_tilde(lambda_1, lambda_2, mass_1, mass_2)
+
+    injection_parameters_all = assemble_pBNS_parameters(mass_1, mass_2, chirp_mass, mass_ratio, 
+                                                         a_1, a_2, tilt_1, tilt_2, phi_12, phi_jl, 
+                                                         lambda_1, lambda_2, lambda_tilde, delta_lambda_tilde, 
+                                                         theta_jn, luminosity_distance, ra, dec, psi, phase, geocent_time)
+
+    return injection_parameters_all
 
 def get_precalwf_list(folder, nbatch, file_per_batch, filename_prefix, **kwargs):
     file_list = []

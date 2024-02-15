@@ -23,11 +23,13 @@ def save_model(filename, model):
         pickle.dump(model, f)
     print(f'Model saved to {filename}')
 
-def load_model(filename):
+def load_model(filename, verbose=False):
     with open(filename, 'rb') as f:
         model = pickle.load(f)
-    print(f'Model loaded from {filename}')
+    if verbose:
+        print(f'Model loaded from {filename}')
     return model 
+
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -50,11 +52,14 @@ def save_loss_data(train_losses, valid_losses, outdir, logscale='true', test_los
     plt.ylabel('loss')
     plt.xlabel('epoch')
 
-    if logscale:
+    ymin = min(min(train_losses), min(valid_losses)) - 3
+    plt.ylim(ymin, max(train_losses))
+
+    if logscale and ymin>0:
         plt.yscale('log')
     if len(train_losses)>100:
         plt.xscale('log')
-    plt.ylim(min(min(train_losses), min(valid_losses)) - 3, 1.2*max(train_losses))
+    
     #plt.ylim(3, 1.2*max(train_losses))
     plt.savefig(f'{outdir}/losses.png')
     
@@ -417,7 +422,7 @@ def sample_glasflow_v3(flow, embedding, resnet, dataset, detector_names, ipca_ge
 
 
 
-def train_GlasNSFWarpper(model, optimizer, dataloader, detector_names, ipca_gen, device='cpu',downsample_rate=1):
+def train_GlasNSFWarpper(model, optimizer, dataloader, detector_names=None, ipca_gen=None, device='cpu',downsample_rate=1):
     model.train()
     loss_list = []
     for theta, x in dataloader:
@@ -435,7 +440,7 @@ def train_GlasNSFWarpper(model, optimizer, dataloader, detector_names, ipca_gen,
     std_loss = torch.stack(loss_list).std().item()
     return mean_loss, std_loss
 
-def eval_GlasNSFWarpper(model, dataloader, detector_names, ipca_gen, device='cpu',downsample_rate=1):
+def eval_GlasNSFWarpper(model, dataloader, detector_names=None, ipca_gen=None, device='cpu',downsample_rate=1):
     model.eval()
     loss_list = []
     with torch.no_grad():
@@ -451,7 +456,7 @@ def eval_GlasNSFWarpper(model, dataloader, detector_names, ipca_gen, device='cpu
     return mean_loss, std_loss
 
 
-def sample_GlasNSFWarpper(model, dataset, detector_names, ipca_gen, device='cpu', Nsample=5000, downsample_rate=1):
+def sample_GlasNSFWarpper(model, dataset, detector_names=None, ipca_gen=None, device='cpu', Nsample=5000, downsample_rate=1):
     model.eval()
     #loss_list = []
     #sample_list = []

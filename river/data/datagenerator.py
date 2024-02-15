@@ -2,9 +2,10 @@ import numpy as np
 import bilby
 import spiir.io
 #import utils as datautils
-from .utils import load_dict_from_hdf5, save_dict_to_hdf5
+from .utils import load_dict_from_hdf5, save_dict_to_hdf5, generate_random_distance
 import sealgw.simulation as sealsim
 import pickle
+
 
 class DataGeneratorBilbyFD:
     def __init__(self,
@@ -17,11 +18,13 @@ class DataGeneratorBilbyFD:
             waveform_approximant, 
             parameter_names,
             frequency_domain_source_model = None,
+            f_high=None,
             PSD_type = 'bilby_default',
             custom_psd_path=None,
             use_sealgw_detector=False,
             snr_threshold = 8,
             ipca=None,
+            Vh=None,
             **kwargs):
 
         # set properties
@@ -32,6 +35,10 @@ class DataGeneratorBilbyFD:
         self.f_low = f_low 
         self.f_ref = f_ref
         self.sampling_frequency = sampling_frequency
+        if f_high:
+            self.f_high = f_high
+        else:
+            self.f_high = sampling_frequency / 2
         self.use_sealgw_detector = use_sealgw_detector
         self.snr_threshold = snr_threshold
         self.scaled = False
@@ -47,7 +54,7 @@ class DataGeneratorBilbyFD:
         for det in self.ifos:
             det.sampling_frequency = sampling_frequency
             det.duration = duration
-            det.frequency_mask = det.frequency_array >= f_low
+            det.frequency_mask = (det.frequency_array >= self.f_low) * (det.frequency_array <= self.f_high)
             if use_sealgw_detector:
                 det.antenna_response_change = False
 
@@ -57,8 +64,9 @@ class DataGeneratorBilbyFD:
 
         # set waveform
         self.waveform_arguments = dict(waveform_approximant=waveform_approximant,
-            minimum_frequency=f_low,
-            reference_frequency=f_ref)
+            minimum_frequency=self.f_low,
+            maximum_frequency=self.f_high,
+            reference_frequency=self.f_ref)
 
         if frequency_domain_source_model is None:
             if source_type == 'BNS':
@@ -116,6 +124,17 @@ class DataGeneratorBilbyFD:
             self.ipca = model.pca_dict
         else:
             self.ipca = ipca
+
+        if type(Vh) == str:
+            with open(Vh, 'rb') as f:
+                self.Vh = pickle.load(f)
+        else:
+            self.Vh = Vh
+        if self.Vh is not None:
+            self.V = self.Vh.T.conj()
+
+        if (self.Vh is not None) and (self.ipca is not None):
+            raise ValueError("Got both IPCA and Vh!")
 
     def initialize_data(self):
         self.data = {}
@@ -301,7 +320,11 @@ class DataGeneratorBilbyFD:
             phase = np.unwrap(np.angle(h))
             wf_masked[key] = {}
 
-            if self.ipca:
+            if self.Vh is not None:
+                h_proj = h @ self.V
+                wf_masked[key]['amplitude'] = np.abs(h_proj) 
+                wf_masked[key]['phase'] = np.angle(h_proj)
+            elif self.ipca:
                 amp_proj = np.dot(amp, self.ipca[key]['amplitude'].components_.T)
                 phase_proj = np.dot(phase, self.ipca[key]['phase'].components_.T)
                 wf_masked[key]['amplitude'] = amp_proj
@@ -449,3 +472,4 @@ class DataGeneratorBilbyFD:
                 polarizations[mode][part] = waveform_list[mode][part][index]
 
         return polarizations
+
