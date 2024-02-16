@@ -422,13 +422,23 @@ def sample_glasflow_v3(flow, embedding, resnet, dataset, detector_names, ipca_ge
 
 
 
-def train_GlasNSFWarpper(model, optimizer, dataloader, detector_names=None, ipca_gen=None, device='cpu',downsample_rate=1):
+def train_GlasNSFWarpper(model, optimizer, dataloader, detector_names=None, ipca_gen=None, device='cpu',downsample_rate=1, minibatch_size=0):
     model.train()
     loss_list = []
     for theta, x in dataloader:
         optimizer.zero_grad()
         theta = theta.to(device)
         x = x.to(device)
+        
+        if minibatch_size>0:
+            # x: [bs, minibatch_size, nchannel, nbasis]
+            # theta: [bs, minibatch_size, npara]
+            bs = x.shape[0]
+            nbasis = x.shape[-1]
+            nchannel = x.shape[-2]
+            npara = theta.shape[-1]
+            theta = theta.view(bs*minibatch_size, npara)
+            x = x.view(bs*minibatch_size, nchannel, nbasis)
         #x = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen).to(device)
         loss = -model.log_prob(theta, x).mean()
         loss.backward()

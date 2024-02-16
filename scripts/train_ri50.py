@@ -17,7 +17,7 @@ from torch import nn
 
 import river.data
 from river.data.datagenerator import DataGeneratorBilbyFD
-from river.data.dataset import DatasetSVDStrainFDFromSVDWFonGPU
+from river.data.dataset import DatasetSVDStrainFDFromSVDWFonGPU, DatasetSVDStrainFDFromSVDWFonGPUBatch
 #import river.data.utils as datautils
 from river.data.utils import *
 
@@ -85,7 +85,7 @@ def main():
 
 
     logger.info(f'Loading precalculated data.')
-    train_filenames = glob.glob(f"{config_precaldata['train']['folder']}/batch*/*.h5")[:8]
+    train_filenames = glob.glob(f"{config_precaldata['train']['folder']}/batch*/*.h5")[:4]
     valid_filenames = glob.glob(f"{config_precaldata['valid']['folder']}/batch*/*.h5")
     #logger.info(f'{len(train_precaldata_filelist)}, {len(valid_precaldata_filelist)}')
     
@@ -93,20 +93,24 @@ def main():
     device=config_training['device']
     Vhfile = config_model['Vhfile']
     Nbasis = config_model['Nbasis']
-    dataset_train = DatasetSVDStrainFDFromSVDWFonGPU(train_filenames, PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY, data_generator,
-                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device)
+    batch_size_train = config_training['batch_size_train']
+    minibatch_size_train = config_training['minibatch_size_train']
+    batch_size_valid = config_training['batch_size_valid']
+
+
+    dataset_train = DatasetSVDStrainFDFromSVDWFonGPUBatch(train_filenames, PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY, data_generator,
+                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, minibatch_size=minibatch_size_train)
     dataset_valid = DatasetSVDStrainFDFromSVDWFonGPU(valid_filenames, PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY, data_generator,
                                      Nbasis=Nbasis, Vhfile=Vhfile, device=device)
 
-    batch_size_train = config_training['batch_size_train']
-    batch_size_valid = config_training['batch_size_valid']
+    
 
     Nsample = len(dataset_train)
     Nvalid = len(dataset_valid)
     logger.info(f'Nsample: {Nsample}, Nvalid: {Nvalid}.')
     logger.info(f'batch_size_train: {batch_size_train}, batch_size_valid: {batch_size_valid}')
 
-    train_loader = DataLoader(dataset_train, batch_size=batch_size_train, shuffle=False)
+    train_loader = DataLoader(dataset_train, batch_size=batch_size_train // minibatch_size_train, shuffle=False)
     valid_loader = DataLoader(dataset_valid, batch_size=batch_size_valid, shuffle=False)
 
 
@@ -175,7 +179,7 @@ def main():
 
     for epoch in range(start_epoch, max_epoch):    
         
-        train_loss, train_loss_std = train_GlasNSFWarpper(model, optimizer, train_loader, device=device)
+        train_loss, train_loss_std = train_GlasNSFWarpper(model, optimizer, train_loader, device=device, minibatch_size=minibatch_size_train)
         valid_loss, valid_loss_std = eval_GlasNSFWarpper(model, valid_loader, device=device)
 
 

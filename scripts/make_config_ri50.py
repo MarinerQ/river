@@ -60,17 +60,18 @@ if __name__ == "__main__":
     config_dict['training_parameters'] = {}
     #config_dict['training_parameters']['Nsample'] = 1000000
     #config_dict['training_parameters']['Nvalid'] = 1000
-    config_dict['training_parameters']['batch_size_train'] = 4096
+    config_dict['training_parameters']['batch_size_train'] = 2048
+    config_dict['training_parameters']['minibatch_size_train'] = 64
     config_dict['training_parameters']['batch_size_valid'] = 512
     config_dict['training_parameters']['batch_size_test'] = 10
-    config_dict['training_parameters']['device'] = 'cuda:3'
-    config_dict['training_parameters']['lr'] = 5e-4
+    config_dict['training_parameters']['device'] = 'cuda'
+    config_dict['training_parameters']['lr'] = 6e-4
     config_dict['training_parameters']['weight_decay'] = 1e-5
     config_dict['training_parameters']['gamma'] = 0.7
     config_dict['training_parameters']['max_epoch'] = 500
     config_dict['training_parameters']['epoches_pretrain'] = 10
     config_dict['training_parameters']['epoches_save_loss'] = 5
-    config_dict['training_parameters']['epoches_adjust_lr'] = 15
+    config_dict['training_parameters']['epoches_adjust_lr'] = 150
     config_dict['training_parameters']['epoches_adjust_lr_again'] = 8
     config_dict['training_parameters']['load_from_previous_train'] = False
 
@@ -93,8 +94,8 @@ if __name__ == "__main__":
     config_dict['model_parameters']['embedding']['model'] = 'EmbeddingConv1D'
     config_dict['model_parameters']['embedding']['ndet'] = 3
     config_dict['model_parameters']['embedding']['nout'] = 128
-    config_dict['model_parameters']['embedding']['num_blocks'] = 5
-    config_dict['model_parameters']['embedding']['middle_channel'] = 256
+    config_dict['model_parameters']['embedding']['num_blocks'] = 3
+    config_dict['model_parameters']['embedding']['middle_channel'] = 32
     config_dict['model_parameters']['embedding']['use_psd'] = False
 
 
