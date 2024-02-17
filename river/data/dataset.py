@@ -362,7 +362,7 @@ class DatasetSVDStrainFDFromSVDWFonGPU(Dataset):
     Simulate FD data in SVD space from pre-calculated SVD waveforms, optimized for GPU or CPU computation.
     '''
     def __init__(self, precalwf_filelist, parameter_names, data_generator, Nbasis, Vhfile,
-                 dmin=10, dmax=200, dpower=1, loadwf=False, loadnoise=False, device='cuda'):
+                 dmin=10, dmax=200, dpower=1, loadwf=False, loadnoise=False, device='cuda', complex = False):
         self.precalwf_filelist = precalwf_filelist
         self.parameter_names = parameter_names
         self.data_generator = data_generator
@@ -373,6 +373,7 @@ class DatasetSVDStrainFDFromSVDWFonGPU(Dataset):
         self.loadwf = loadwf
         self.loadnoise = loadnoise
         self.device = device
+        self.complex = complex
 
         # Load V and Vh matrices and convert to tensors
         self.V, self.Vh = loadVandVh(Vhfile, Nbasis)
@@ -415,10 +416,14 @@ class DatasetSVDStrainFDFromSVDWFonGPU(Dataset):
         injection_parameters = self.update_injection_parameters(injection_parameters)
         hp_svd = hp_svd/injection_parameters['luminosity_distance']
         hc_svd = hc_svd/injection_parameters['luminosity_distance']
-        x_real, x_imag = self.compute_strain_tensors(hp_svd, hc_svd, injection_parameters)
+        #x_real, x_imag = self.compute_strain_tensors(hp_svd, hc_svd, injection_parameters)
+        x = self.compute_strain_tensors(hp_svd, hc_svd, injection_parameters)
 
         theta = self.get_theta(injection_parameters)
-        return theta, torch.cat((x_real, x_imag)).float()
+        if self.complex:
+            return theta, x 
+        else:
+            return theta, torch.cat((x.real, x.imag)).float()
 
     def get_index(self, index, sample_per_file):
         index_of_file = index // sample_per_file
@@ -456,8 +461,9 @@ class DatasetSVDStrainFDFromSVDWFonGPU(Dataset):
     
     def compute_strain_tensors(self, hp_svd, hc_svd, injection_parameters):
         num_ifos = len(self.ifos)
-        x_real = torch.zeros((num_ifos, self.Nbasis), dtype=torch.float32, device=self.device)
-        x_imag = torch.zeros((num_ifos, self.Nbasis), dtype=torch.float32, device=self.device)
+        #x_real = torch.zeros((num_ifos, self.Nbasis), dtype=torch.float32, device=self.device)
+        #x_imag = torch.zeros((num_ifos, self.Nbasis), dtype=torch.float32, device=self.device)
+        x = torch.zeros((num_ifos, self.Nbasis), dtype=torch.complex64, device=self.device)
         for i, det in enumerate(self.ifos):
             detname = det.name
 
@@ -470,9 +476,11 @@ class DatasetSVDStrainFDFromSVDWFonGPU(Dataset):
             n_svd = self.get_noise_tensors()
             d_svd = h_svd + n_svd
             
-            x_real[i] = d_svd.real
-            x_imag[i] = d_svd.imag
-        return x_real, x_imag
+            #x_real[i] = d_svd.real
+            #x_imag[i] = d_svd.imag
+            x[i] = d_svd
+        #return x_real, x_imag
+        return x
 
     def compute_detector_factors(self, det, injection_parameters):
         # These calculations remain on CPU as they cannot be efficiently vectorized or moved to GPU
@@ -516,7 +524,7 @@ class DatasetSVDStrainFDFromSVDWFonGPUBatch(Dataset):
     Load a batch of data, i.e. return [minibatch_size, dim1, dim2, ...]. The batch size should be 2^N. 
     '''
     def __init__(self, precalwf_filelist, parameter_names, data_generator, Nbasis, Vhfile,
-                 dmin=10, dmax=200, dpower=1, loadwf=False, loadnoise=False, device='cuda',minibatch_size=1):
+                 dmin=10, dmax=200, dpower=1, loadwf=False, loadnoise=False, device='cuda', complex=False, minibatch_size=1):
         self.precalwf_filelist = precalwf_filelist
         self.parameter_names = parameter_names
         self.data_generator = data_generator
@@ -528,6 +536,7 @@ class DatasetSVDStrainFDFromSVDWFonGPUBatch(Dataset):
         self.loadnoise = loadnoise
         self.device = device
         self.minibatch_size = minibatch_size
+        self.complex = complex
 
         # Load V and Vh matrices and convert to tensors
         self.V, self.Vh = loadVandVh(Vhfile, Nbasis)
@@ -584,10 +593,14 @@ class DatasetSVDStrainFDFromSVDWFonGPUBatch(Dataset):
         hp_svd = hp_svd/dL
         hc_svd = hc_svd/dL
 
-        x_real, x_imag = self.compute_strain_tensors_batch(hp_svd, hc_svd, injection_parameters)
+        #x_real, x_imag = self.compute_strain_tensors_batch(hp_svd, hc_svd, injection_parameters)
+        x = self.compute_strain_tensors_batch(hp_svd, hc_svd, injection_parameters)
 
         theta = self.get_theta(injection_parameters)
-        return theta, torch.cat((x_real, x_imag), axis=1).float()
+        if self.complex:
+            return theta, x 
+        else:
+            return theta, torch.cat((x.real, x.imag), axis=1).float()
 
     def get_index(self, index, sample_per_file):
         index_of_file = index // sample_per_file
@@ -655,9 +668,9 @@ class DatasetSVDStrainFDFromSVDWFonGPUBatch(Dataset):
     
     def compute_strain_tensors_batch(self, hp_svd, hc_svd, injection_parameters):
         num_ifos = len(self.ifos)
-        x_real = torch.zeros((self.minibatch_size, num_ifos, self.Nbasis), dtype=torch.float32, device=self.device)
-        x_imag = torch.zeros((self.minibatch_size, num_ifos, self.Nbasis), dtype=torch.float32, device=self.device)
-        
+        #x_real = torch.zeros((self.minibatch_size, num_ifos, self.Nbasis), dtype=torch.float32, device=self.device)
+        #x_imag = torch.zeros((self.minibatch_size, num_ifos, self.Nbasis), dtype=torch.float32, device=self.device)
+        x = torch.zeros((self.minibatch_size, num_ifos, self.Nbasis), dtype=torch.complex64, device=self.device)
         for i,det in enumerate(self.ifos):
             detname = det.name
         
@@ -676,11 +689,12 @@ class DatasetSVDStrainFDFromSVDWFonGPUBatch(Dataset):
             n_svd = self.get_noise_tensors_batch()
             d_svd = h_svd + n_svd
             
-            x_real[:,i,:] = d_svd.real
-            x_imag[:,i,:] = d_svd.imag
+            #x_real[:,i,:] = d_svd.real
+            #x_imag[:,i,:] = d_svd.imag
+            x[:,i,:] = d_svd
             
 
-        return x_real, x_imag
+        return x
     
     def compute_detector_factors_batch(self, det, injection_parameters):
         # These calculations remain on CPU as they cannot be efficiently vectorized or moved to GPU

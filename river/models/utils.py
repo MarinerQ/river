@@ -12,7 +12,7 @@ from itertools import product
 import scipy
 
 import pandas as pd
-from .embedding.conv import EmbeddingConv1D, EmbeddingConv2D
+from .embedding.conv import EmbeddingConv1D, EmbeddingConv2D, MyEmbeddingConv2D
 from .embedding.mlp import EmbeddingMLP1D, ResnetMLP1D
 
 ############################################
@@ -78,6 +78,8 @@ def get_model(config_dict):
     model_name = config_dict_cpy.pop('model')
     if model_name == 'EmbeddingConv1D':
         return EmbeddingConv1D(**config_dict_cpy)
+    elif model_name == "MyEmbeddingConv2D":
+        return MyEmbeddingConv2D(**config_dict_cpy)
     elif model_name == 'EmbeddingConv2D':
         return EmbeddingConv2D(**config_dict_cpy)
     elif model_name == 'EmbeddingMLP1D':

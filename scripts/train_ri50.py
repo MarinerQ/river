@@ -25,7 +25,7 @@ from river.models import embedding
 from river.models.utils import *
 from river.models.embedding.conv import EmbeddingConv1D, EmbeddingConv2D
 from river.models.embedding.mlp import EmbeddingMLP1D
-from river.models.inference.cnf import GlasNSFConv1DRes, GlasNSFConv1D, GlasNSFTest
+from river.models.inference.cnf import GlasNSFConv1DRes, GlasNSFConv1D, GlasNSFTest, GlasflowEmbdding
 
 import logging
 import sys
@@ -85,7 +85,7 @@ def main():
 
 
     logger.info(f'Loading precalculated data.')
-    train_filenames = glob.glob(f"{config_precaldata['train']['folder']}/batch*/*.h5")[:4]
+    train_filenames = glob.glob(f"{config_precaldata['train']['folder']}/batch*/*.h5")[:8]
     valid_filenames = glob.glob(f"{config_precaldata['valid']['folder']}/batch*/*.h5")
     #logger.info(f'{len(train_precaldata_filelist)}, {len(valid_precaldata_filelist)}')
     
@@ -105,7 +105,7 @@ def main():
 
     
 
-    Nsample = len(dataset_train)
+    Nsample = len(dataset_train)*minibatch_size_train
     Nvalid = len(dataset_valid)
     logger.info(f'Nsample: {Nsample}, Nvalid: {Nvalid}.')
     logger.info(f'batch_size_train: {batch_size_train}, batch_size_valid: {batch_size_valid}')
@@ -120,7 +120,8 @@ def main():
     #n_freq = dataset_train[0:2][1][:,:,::downsample_rate].shape[-1]
     
     #model = GlasNSFConv1DRes(config).to(device)
-    model = GlasNSFConv1D(config).to(device)
+    #model = GlasNSFConv1D(config).to(device)
+    model = GlasflowEmbdding(config).to(device)
 
 
     lr = config_training['lr']
@@ -222,7 +223,7 @@ def main():
             '''
         dataset_train.shuffle_indexinfile()
         dataset_train.shuffle_wflist()
-        train_loader = DataLoader(dataset_train, batch_size=batch_size_train, shuffle=False)
+        train_loader = DataLoader(dataset_train, batch_size=batch_size_train // minibatch_size_train, shuffle=False)
 if __name__ == "__main__":
     main()
 

@@ -60,7 +60,7 @@ class ResidualConvBlock1D(nn.Module):
         return out
 
 class EmbeddingConv1D(nn.Module):
-    def __init__(self, ndet, nout, num_blocks, use_psd = True, middle_channel = 512, kernel_size=1, stride=1, padding=0, dilation=1, dropout=0.5, **kwargs):
+    def __init__(self, ndet, nout, num_blocks, use_psd = True, middle_channel = 32, kernel_size=1, stride=1, padding=0, dilation=1, dropout=0.5, **kwargs):
         super().__init__()
         #self.ncomp = ncomp
         self.nout = nout
@@ -94,15 +94,22 @@ class ResidualConvBlock2D(nn.Module):
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation)
         self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, padding=padding, dilation=dilation)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=1, padding=0, dilation=1)
         self.bn2 = nn.BatchNorm2d(out_channels)
+        
+        if in_channels != out_channels or kernel_size!=1 or stride!=1 or padding!=0 or dilation!=1:
+            self.downsample = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation) 
+        else:
+            self.downsample = nn.Identity()
 
+        '''
         self.downsample = nn.Sequential()
         if stride != 1 or in_channels != out_channels:
             self.downsample = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride),
+                nn.Conv2d(in_channels, out_channels, kernel_size=1),
                 nn.BatchNorm2d(out_channels)
             )
+        '''
 
     def forward(self, x):
         residual = x
@@ -146,3 +153,36 @@ class EmbeddingConv2D(nn.Module):
         output = self.linear(x)
         return output
 
+#I have a 2D input (or, a matrix) with shape (6, 512). There are 6 rows, let call them a1, a2, b1, b2, c1, c2. The features I want to extract are correlations between these rows, e.g, between a1 and a2, or a1 and b1, or a1 and c1 and so forth. As you can see, there are different "scales": a1 and a2 are close so we need a small conv kernel, but a1 and c1 are far way so we need a big conv kernel. How to design a CNN to extract features for this input? 
+
+
+class MyEmbeddingConv2D(nn.Module):
+    def __init__(self, nout, **kwargs):
+        super().__init__()
+
+        self.nout = nout
+        self.layers = nn.ModuleList([self.make_layer()])
+        self.linear = nn.Linear(3, self.nout)
+
+    def make_layer(self):
+        layers = []
+        layers.append(ResidualConvBlock2D(in_channels=1, out_channels=1,
+                                          kernel_size=(3,2), stride=(1,1), dilation=(1,1), padding = (2,0)))
+        layers.append(ResidualConvBlock2D(in_channels=8, out_channels=16,
+                                          kernel_size=(3,4), stride=(1,1), dilation=(1,1), padding = (2,0)))
+        layers.append(ResidualConvBlock2D(in_channels=16, out_channels=16,
+                                          kernel_size=(3,2), stride=(1,1), dilation=(1,1), padding = (0,0)))
+        layers.append(ResidualConvBlock2D(in_channels=16, out_channels=3,
+                                          kernel_size=(3,2), stride=(1,1), dilation=(1,1), padding = (0,0)))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        # x : [batch_size, channel (det_123, amp/phase) = 2*ndet, length (number of samples)]
+        # bs,_,_,_  = x.shape
+        x = x.unsqueeze(1)
+        for layer in self.layers:
+            x = layer(x)
+        x = F.avg_pool2d(x, x.size()[2:])
+        x = x.view(x.size(0), -1)
+        output = self.linear(x)
+        return output
