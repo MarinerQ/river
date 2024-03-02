@@ -1,5 +1,5 @@
 import numpy
-from setuptools import setup
+from setuptools import setup, find_packages
 
 
 install_requires = [
@@ -16,7 +16,7 @@ setup(
     url='https://github.com/marinerq/river',
     license='MIT',
     python_requires='>=3',
-    packages=['river', 'river.data', 'river.models'],
+    packages=find_packages(),
     install_requires=install_requires,
     include_dirs=[numpy.get_include()],
     setup_requires=['numpy'],
