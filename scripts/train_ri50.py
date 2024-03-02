@@ -1,7 +1,7 @@
 # conda activate myigwn-py39
 # export OMP_NUM_THREADS=24
 
-# train3.py: train with precalculated waveforms
+
 import numpy as np
 import bilby 
 #import pycbc 
@@ -49,6 +49,7 @@ def main():
 
     # Set up logger
     PID = os.getpid()
+    device=config_training['device']
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
@@ -90,7 +91,7 @@ def main():
     #logger.info(f'{len(train_precaldata_filelist)}, {len(valid_precaldata_filelist)}')
     
     data_generator = DataGeneratorBilbyFD(**config_datagenerator)
-    device=config_training['device']
+    
     Vhfile = config_model['Vhfile']
     Nbasis = config_model['Nbasis']
     batch_size_train = config_training['batch_size_train']
@@ -99,9 +100,9 @@ def main():
 
 
     dataset_train = DatasetSVDStrainFDFromSVDWFonGPUBatch(train_filenames, PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY, data_generator,
-                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, minibatch_size=minibatch_size_train)
+                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, minibatch_size=minibatch_size_train, fix_extrinsic=True)
     dataset_valid = DatasetSVDStrainFDFromSVDWFonGPU(valid_filenames, PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY, data_generator,
-                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device)
+                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, fix_extrinsic=True)
 
     
 
@@ -114,11 +115,6 @@ def main():
     valid_loader = DataLoader(dataset_valid, batch_size=batch_size_valid, shuffle=False)
 
 
-
-    #downsample_rate = config_embd_noproj['downsample_rate']
-    #logger.info(f'Downsample rate: {downsample_rate}')
-    #n_freq = dataset_train[0:2][1][:,:,::downsample_rate].shape[-1]
-    
     #model = GlasNSFConv1DRes(config).to(device)
     #model = GlasNSFConv1D(config).to(device)
     model = GlasflowEmbdding(config).to(device)
@@ -133,7 +129,7 @@ def main():
     logger.info(f'Gamma: {gamma}')
 
     max_epoch = config_training['max_epoch']
-    epoches_pretrain = config_training['epoches_pretrain']
+    #epoches_pretrain = config_training['epoches_pretrain']
     epoches_save_loss = config_training['epoches_save_loss']
     epoches_adjust_lr = config_training['epoches_adjust_lr']
     epoches_adjust_lr_again = config_training['epoches_adjust_lr_again']
@@ -176,7 +172,7 @@ def main():
     #    g['lr'] = 1e-5
     #    logger.info(f'Set lr to 1e-5.')
 
-    logger.info(f'Training started.')
+    logger.info(f'Training started, device:{device}. ')
 
     for epoch in range(start_epoch, max_epoch):    
         

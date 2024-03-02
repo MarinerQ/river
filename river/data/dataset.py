@@ -362,7 +362,8 @@ class DatasetSVDStrainFDFromSVDWFonGPU(Dataset):
     Simulate FD data in SVD space from pre-calculated SVD waveforms, optimized for GPU or CPU computation.
     '''
     def __init__(self, precalwf_filelist, parameter_names, data_generator, Nbasis, Vhfile,
-                 dmin=10, dmax=200, dpower=1, loadwf=False, loadnoise=False, device='cuda', complex = False):
+                dmin=10, dmax=200, dpower=1, loadwf=False, loadnoise=False, device='cuda',
+                complex = False, add_noise=True, fix_extrinsic=False, shuffle=True):
         self.precalwf_filelist = precalwf_filelist
         self.parameter_names = parameter_names
         self.data_generator = data_generator
@@ -374,6 +375,9 @@ class DatasetSVDStrainFDFromSVDWFonGPU(Dataset):
         self.loadnoise = loadnoise
         self.device = device
         self.complex = complex
+        self.add_noise = add_noise
+        self.fix_extrinsic = fix_extrinsic
+        self.shuffle = shuffle
 
         # Load V and Vh matrices and convert to tensors
         self.V, self.Vh = loadVandVh(Vhfile, Nbasis)
@@ -450,6 +454,7 @@ class DatasetSVDStrainFDFromSVDWFonGPU(Dataset):
         return hp_svd, hc_svd
 
     def get_injection_parameters(self, wf_dict, index_in_file):
+        index_in_file = self.random_index_in_file[index_in_file]
         injection_parameters = {key: wf_dict['injection_parameters'][key][index_in_file] for key in ['chirp_mass', 'mass_ratio', 'a_1', 'a_2', 'tilt_1', 'tilt_2', 'phi_12', 'phi_jl',
                     'lambda_tilde', 'delta_lambda_tilde', 'theta_jn', 'phase']}
         return injection_parameters
@@ -473,8 +478,12 @@ class DatasetSVDStrainFDFromSVDWFonGPU(Dataset):
             
             h_svd = torch.matmul(torch.matmul((fp*hp_svd + fc*hc_svd).type(torch.complex64), Vh_recons),
                                  self.det_data[detname]['whitened_V'])
-            n_svd = self.get_noise_tensors()
-            d_svd = h_svd + n_svd
+
+            if self.add_noise:
+                n_svd = self.get_noise_tensors()
+                d_svd = h_svd + n_svd
+            else:
+                d_svd = h_svd
             
             #x_real[i] = d_svd.real
             #x_imag[i] = d_svd.imag
@@ -498,24 +507,35 @@ class DatasetSVDStrainFDFromSVDWFonGPU(Dataset):
         return fp, fc, dt
 
     def get_theta(self, injection_parameters):
-        theta = torch.tensor([injection_parameters[paraname] for paraname in self.parameter_names], dtype=torch.float32).to(self.device)
+        theta = torch.tensor(np.array([injection_parameters[paraname] for paraname in self.parameter_names]), dtype=torch.float32).to(self.device)
         return theta
     
     def update_injection_parameters(self, injection_parameters):
-        injection_parameters['ra'] = np.random.uniform(0, np.pi)
-        injection_parameters['dec'] = np.arcsin(np.random.uniform(-1, 1))
-        injection_parameters['psi'] = np.random.uniform(0, np.pi)
-        injection_parameters['geocent_time'] = np.random.uniform(-0.1, 0.1)
-        injection_parameters['luminosity_distance'] = generate_random_distance(Nsample=1, low=self.dmin, high=self.dmax, power=self.dpower)[0]
+        if self.fix_extrinsic:
+            injection_parameters['ra'] = 1
+            injection_parameters['dec'] = 1
+            injection_parameters['psi'] = 1
+            injection_parameters['geocent_time'] = 0
+            #injection_parameters['luminosity_distance'] = generate_random_distance(Nsample=1, low=self.dmin, high=self.dmax, power=self.dpower)[0]
+            injection_parameters['luminosity_distance'] = 100
+        else:
+            injection_parameters['ra'] = np.random.uniform(0, np.pi)
+            injection_parameters['dec'] = np.arcsin(np.random.uniform(-1, 1))
+            injection_parameters['psi'] = np.random.uniform(0, np.pi)
+            injection_parameters['geocent_time'] = np.random.uniform(-0.1, 0.1)
+            injection_parameters['luminosity_distance'] = generate_random_distance(Nsample=1, low=self.dmin, high=self.dmax, power=self.dpower)[0]
     
         return injection_parameters
     
     def shuffle_wflist(self):
-        random.shuffle(self.precalwf_filelist)
+        if self.shuffle:
+            random.shuffle(self.precalwf_filelist)
         
     def shuffle_indexinfile(self):
-        self.random_index_in_file = np.random.permutation(self.sample_per_file)
-
+        if self.shuffle:
+            self.random_index_in_file = np.random.permutation(self.sample_per_file)
+        else:
+            self.random_index_in_file = np.arange(self.sample_per_file)
 
 class DatasetSVDStrainFDFromSVDWFonGPUBatch(Dataset):
     '''
@@ -524,7 +544,8 @@ class DatasetSVDStrainFDFromSVDWFonGPUBatch(Dataset):
     Load a batch of data, i.e. return [minibatch_size, dim1, dim2, ...]. The batch size should be 2^N. 
     '''
     def __init__(self, precalwf_filelist, parameter_names, data_generator, Nbasis, Vhfile,
-                 dmin=10, dmax=200, dpower=1, loadwf=False, loadnoise=False, device='cuda', complex=False, minibatch_size=1):
+                dmin=10, dmax=200, dpower=1, loadwf=False, loadnoise=False, device='cuda',
+                complex=False, add_noise=True, minibatch_size=1, fix_extrinsic=False, shuffle=True):
         self.precalwf_filelist = precalwf_filelist
         self.parameter_names = parameter_names
         self.data_generator = data_generator
@@ -537,6 +558,9 @@ class DatasetSVDStrainFDFromSVDWFonGPUBatch(Dataset):
         self.device = device
         self.minibatch_size = minibatch_size
         self.complex = complex
+        self.add_noise = add_noise
+        self.fix_extrinsic = fix_extrinsic
+        self.shuffle = shuffle
 
         # Load V and Vh matrices and convert to tensors
         self.V, self.Vh = loadVandVh(Vhfile, Nbasis)
@@ -653,10 +677,12 @@ class DatasetSVDStrainFDFromSVDWFonGPUBatch(Dataset):
                 end_index = index_in_file_end
             else:
                 end_index = self.sample_per_file
+
+            index_random = self.random_index_in_file[index_in_file:end_index]
             if i==0:
-                injection_parameters = {key: wf_dict['injection_parameters'][key][index_in_file:end_index] for key in para_name_list}
+                injection_parameters = {key: wf_dict['injection_parameters'][key][index_random] for key in para_name_list}
             else:
-                injection_parameters = {key: np.append(injection_parameters[key], wf_dict['injection_parameters'][key][index_in_file:end_index]) for key in para_name_list}
+                injection_parameters = {key: np.append(injection_parameters[key], wf_dict['injection_parameters'][key][index_random]) for key in para_name_list}
 
         return injection_parameters
 
@@ -685,9 +711,11 @@ class DatasetSVDStrainFDFromSVDWFonGPUBatch(Dataset):
                                  self.det_data[detname]['whitened_V'])
             
             
-            
-            n_svd = self.get_noise_tensors_batch()
-            d_svd = h_svd + n_svd
+            if self.add_noise:
+                n_svd = self.get_noise_tensors_batch()
+                d_svd = h_svd + n_svd
+            else:
+                d_svd = h_svd
             
             #x_real[:,i,:] = d_svd.real
             #x_imag[:,i,:] = d_svd.imag
@@ -736,24 +764,36 @@ class DatasetSVDStrainFDFromSVDWFonGPUBatch(Dataset):
         return fp, fc, dt
     
     def get_theta(self, injection_parameters):
-        theta = torch.tensor([np.array(injection_parameters[paraname]) for paraname in self.parameter_names], dtype=torch.float32).to(self.device).T
+        theta = torch.tensor(np.array([injection_parameters[paraname] for paraname in self.parameter_names]), dtype=torch.float32).to(self.device).T
         return theta
     
     def update_injection_parameters_batch(self, injection_parameters):
-        injection_parameters['ra'] = np.zeros(self.minibatch_size) + np.random.uniform(0, np.pi)
-        injection_parameters['dec'] = np.zeros(self.minibatch_size) + np.arcsin(np.random.uniform(-1, 1))
-        injection_parameters['psi'] = np.zeros(self.minibatch_size) + np.random.uniform(0, np.pi)
-        injection_parameters['geocent_time'] = np.zeros(self.minibatch_size) + np.random.uniform(-0.1, 0.1)
-        injection_parameters['luminosity_distance'] = generate_random_distance(Nsample=self.minibatch_size, low=self.dmin, high=self.dmax, power=self.dpower)
+        if self.fix_extrinsic:
+            injection_parameters['ra'] = np.zeros(self.minibatch_size) + 1
+            injection_parameters['dec'] = np.zeros(self.minibatch_size) + 1
+            injection_parameters['psi'] = np.zeros(self.minibatch_size) + 1
+            injection_parameters['geocent_time'] = np.zeros(self.minibatch_size) + 0
+            #injection_parameters['luminosity_distance'] = generate_random_distance(Nsample=self.minibatch_size, low=self.dmin, high=self.dmax, power=self.dpower)
+            injection_parameters['luminosity_distance'] = np.zeros(self.minibatch_size) + 100
     
+        else:
+            injection_parameters['ra'] = np.zeros(self.minibatch_size) + np.random.uniform(0, np.pi)
+            injection_parameters['dec'] = np.zeros(self.minibatch_size) + np.arcsin(np.random.uniform(-1, 1))
+            injection_parameters['psi'] = np.zeros(self.minibatch_size) + np.random.uniform(0, np.pi)
+            injection_parameters['geocent_time'] = np.zeros(self.minibatch_size) + np.random.uniform(-0.1, 0.1)
+            injection_parameters['luminosity_distance'] = generate_random_distance(Nsample=self.minibatch_size, low=self.dmin, high=self.dmax, power=self.dpower)
+        
         return injection_parameters
     
     def shuffle_wflist(self):
-        random.shuffle(self.precalwf_filelist)
+        if self.shuffle:
+            random.shuffle(self.precalwf_filelist)
         
     def shuffle_indexinfile(self):
-        self.random_index_in_file = np.random.permutation(self.sample_per_file)
-        #self.random_index_in_file = np.arange(self.sample_per_file)
+        if self.shuffle:
+            self.random_index_in_file = np.random.permutation(self.sample_per_file)
+        else:
+            self.random_index_in_file = np.arange(self.sample_per_file)
 
 
 

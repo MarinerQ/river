@@ -12,7 +12,7 @@ from itertools import product
 import scipy
 
 import pandas as pd
-from .embedding.conv import EmbeddingConv1D, EmbeddingConv2D, MyEmbeddingConv2D
+from .embedding.conv import EmbeddingConv1D, EmbeddingConv2D, MyEmbeddingConv2D,MyEmbeddingConv1D, EmbeddingResConv1DMLP, EmbeddingConv1DMLP
 from .embedding.mlp import EmbeddingMLP1D, ResnetMLP1D
 
 ############################################
@@ -78,8 +78,14 @@ def get_model(config_dict):
     model_name = config_dict_cpy.pop('model')
     if model_name == 'EmbeddingConv1D':
         return EmbeddingConv1D(**config_dict_cpy)
+    elif model_name == 'EmbeddingResConv1DMLP':
+        return EmbeddingResConv1DMLP(**config_dict_cpy)
+    elif model_name == 'EmbeddingConv1DMLP':
+        return EmbeddingConv1DMLP(**config_dict_cpy)
     elif model_name == "MyEmbeddingConv2D":
         return MyEmbeddingConv2D(**config_dict_cpy)
+    elif model_name == 'MyEmbeddingConv1D':
+        return MyEmbeddingConv1D(**config_dict_cpy)
     elif model_name == 'EmbeddingConv2D':
         return EmbeddingConv2D(**config_dict_cpy)
     elif model_name == 'EmbeddingMLP1D':
@@ -441,7 +447,6 @@ def train_GlasNSFWarpper(model, optimizer, dataloader, detector_names=None, ipca
             npara = theta.shape[-1]
             theta = theta.view(bs*minibatch_size, npara)
             x = x.view(bs*minibatch_size, nchannel, nbasis)
-        #x = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen).to(device)
         loss = -model.log_prob(theta, x).mean()
         loss.backward()
         optimizer.step()

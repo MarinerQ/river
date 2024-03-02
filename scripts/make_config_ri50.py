@@ -60,20 +60,21 @@ if __name__ == "__main__":
     config_dict['training_parameters'] = {}
     #config_dict['training_parameters']['Nsample'] = 1000000
     #config_dict['training_parameters']['Nvalid'] = 1000
-    config_dict['training_parameters']['batch_size_train'] = 4096
-    config_dict['training_parameters']['minibatch_size_train'] = 256
-    config_dict['training_parameters']['batch_size_valid'] = 512
+    config_dict['training_parameters']['batch_size_train'] = 16384
+    config_dict['training_parameters']['minibatch_size_train'] = 128
+    config_dict['training_parameters']['batch_size_valid'] = 500
     config_dict['training_parameters']['batch_size_test'] = 10
-    config_dict['training_parameters']['device'] = 'cuda'
-    config_dict['training_parameters']['lr'] = 5e-5
+    config_dict['training_parameters']['lr'] = 5e-4
     config_dict['training_parameters']['weight_decay'] = 1e-5
     config_dict['training_parameters']['gamma'] = 0.7
-    config_dict['training_parameters']['max_epoch'] = 5000
+    config_dict['training_parameters']['max_epoch'] = 1000
     config_dict['training_parameters']['epoches_pretrain'] = 10
     config_dict['training_parameters']['epoches_save_loss'] = 5
-    config_dict['training_parameters']['epoches_adjust_lr'] = 40
-    config_dict['training_parameters']['epoches_adjust_lr_again'] = 8
+    config_dict['training_parameters']['epoches_adjust_lr'] = 8
+    config_dict['training_parameters']['epoches_adjust_lr_again'] = 6
     config_dict['training_parameters']['load_from_previous_train'] = False
+
+    config_dict['training_parameters']['device'] = 'cuda:2'
 
 
 
@@ -98,9 +99,24 @@ if __name__ == "__main__":
     #config_dict['model_parameters']['embedding']['middle_channel'] = 32
     #config_dict['model_parameters']['embedding']['use_psd'] = False
 
-    config_dict['model_parameters']['embedding']['model'] = 'MyEmbeddingConv2D'
-    NCOND = 256
+    config_dict['model_parameters']['embedding']['model'] = 'EmbeddingResConv1DMLP'
+    NCOND = 64
     config_dict['model_parameters']['embedding']['nout'] = NCOND
+    #config_dict['model_parameters']['embedding']['ndet'] = 3
+    config_dict['model_parameters']['embedding']['nbasis'] = config_dict['model_parameters']['Nbasis']
+    config_dict['model_parameters']['embedding']['conv_params'] = {
+            'in_channel':  [6,  3, ],
+            'out_channel': [3, 1],
+            'kernel_size': [16, 16, 16, 8, 8, 8, 8, 8, 8, 8, 4, 4, 4, 4, 2, 2, 2, 1],
+            'stride':      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            'padding':     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            'dilation':    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            'dropout':     [0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        }
+    config_dict['model_parameters']['embedding']['mlp_params'] = {
+            'in_features': [0,],
+            'out_features': [NCOND,],
+        }
 
 
     # resnet after embedding, before flow
@@ -117,44 +133,17 @@ if __name__ == "__main__":
 
     config_dict['model_parameters']['flow']['model'] = 'CouplingNSF'
     config_dict['model_parameters']['flow']['n_inputs'] = 17 
-    config_dict['model_parameters']['flow']['n_transforms'] = 10
+    config_dict['model_parameters']['flow']['n_transforms'] = 3
     config_dict['model_parameters']['flow']['n_conditional_inputs'] = NCOND
-    config_dict['model_parameters']['flow']['n_neurons'] = 160
+    config_dict['model_parameters']['flow']['n_neurons'] = 6  # 32 by default
     config_dict['model_parameters']['flow']['batch_norm_between_transforms'] = True
     config_dict['model_parameters']['flow']['batch_norm_within_blocks'] = True
-    #config_dict['model_parameters']['flow']['model'] = 'NSF'
-    #config_dict['model_parameters']['flow']['features'] = 17
-    #config_dict['model_parameters']['flow']['context'] = 256
-    #config_dict['model_parameters']['flow']['transforms'] = 128
-    #config_dict['model_parameters']['flow']['hidden_features'] = (640, 640)
-    #zuko.flows.NSF(features=2, transforms=3, hidden_features=(64, 64)) context=1
+    config_dict['model_parameters']['flow']['n_blocks_per_transform'] = 2  # 2 by default, 5
+    config_dict['model_parameters']['flow']['num_bins'] = 4  # 4 by default, 8
+    config_dict['model_parameters']['flow']['tail_bound'] = 1 # 5 by default, 1
+
 
 
 
     with open(f"{ckpt_dir}/config.json", 'w', encoding='utf-8') as f:
         json.dump(config_dict, f, ensure_ascii=False, indent=4)
-
-'''
-# EmbeddingConv1D example
-config_dict['model_parameters']['embedding_noproj']['model'] = 'EmbeddingConv1D'
-config_dict['model_parameters']['embedding_noproj']['ndet'] = 3
-config_dict['model_parameters']['embedding_noproj']['downsample_rate'] = 4 # if no proj
-config_dict['model_parameters']['embedding_noproj']['nout'] = 128
-config_dict['model_parameters']['embedding_noproj']['num_blocks'] = 5
-config_dict['model_parameters']['embedding_noproj']['middle_channel'] = 64
-# use_psd = True, middle_channel = 512, kernel_size=1, stride=1, padding=0, dilation=1
-
-# EmbeddingConv2D example
-config_dict['model_parameters']['embedding_noproj']['model'] = 'EmbeddingConv2D'
-config_dict['model_parameters']['embedding_noproj']['nout'] = 128
-config_dict['model_parameters']['embedding_noproj']['num_blocks'] = 5
-# use_psd = True, middle_channel = 16, kernel_size=1, stride=1, padding=0, dilation=1)
-
-# EmbeddingMLP1D example
-config_dict['model_parameters']['embedding_noproj']['model'] = 'EmbeddingMLP1D'
-config_dict['model_parameters']['embedding_noproj']['ndet'] = 3
-config_dict['model_parameters']['embedding_noproj']['nout'] = 128
-config_dict['model_parameters']['embedding_noproj']['num_blocks'] = 5
-config_dict['model_parameters']['embedding_noproj']['datalength'] = 500
-# use_psd = True, middle_features = 512
-'''
