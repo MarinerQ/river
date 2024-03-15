@@ -62,6 +62,7 @@ def save_loss_data(train_losses, valid_losses, outdir, logscale='true', test_los
     
     #plt.ylim(3, 1.2*max(train_losses))
     plt.savefig(f'{outdir}/losses.png')
+    plt.close ('all')
     
 
 def get_embd_dim(embd):
@@ -430,7 +431,7 @@ def sample_glasflow_v3(flow, embedding, resnet, dataset, detector_names, ipca_ge
 
 
 
-def train_GlasNSFWarpper(model, optimizer, dataloader, detector_names=None, ipca_gen=None, device='cpu',downsample_rate=1, minibatch_size=0):
+def train_GlasNSFWarpper(model, optimizer, dataloader, device='cpu', minibatch_size=0):
     model.train()
     loss_list = []
     for theta, x in dataloader:
@@ -457,14 +458,22 @@ def train_GlasNSFWarpper(model, optimizer, dataloader, detector_names=None, ipca
     std_loss = torch.stack(loss_list).std().item()
     return mean_loss, std_loss
 
-def eval_GlasNSFWarpper(model, dataloader, detector_names=None, ipca_gen=None, device='cpu',downsample_rate=1):
+def eval_GlasNSFWarpper(model, dataloader, device='cpu', minibatch_size=0):
     model.eval()
     loss_list = []
     with torch.no_grad():
         for theta, x in dataloader:
             theta = theta.to(device)
             x = x.to(device)
-            #x = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen).to(device)
+            if minibatch_size>0:
+                # x: [bs, minibatch_size, nchannel, nbasis]
+                # theta: [bs, minibatch_size, npara]
+                bs = x.shape[0]
+                nbasis = x.shape[-1]
+                nchannel = x.shape[-2]
+                npara = theta.shape[-1]
+                theta = theta.view(bs*minibatch_size, npara)
+                x = x.view(bs*minibatch_size, nchannel, nbasis)
             loss = -model.log_prob(theta, x).mean()
             loss_list.append(loss.detach())
 

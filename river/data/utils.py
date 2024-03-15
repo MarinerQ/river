@@ -80,7 +80,7 @@ def generate_random_extrinsic_angles(Nsample):
     cos_theta_jn = np.random.uniform(-1, 1, Nsample)
     theta_jn = np.arccos(cos_theta_jn)
 
-    ra = np.random.uniform(0, np.pi, Nsample)
+    ra = np.random.uniform(0, 2*np.pi, Nsample)
     sindec = np.random.uniform(-1, 1, Nsample)
     dec = np.arcsin(sindec)
     psi = np.random.uniform(0, np.pi, Nsample)

@@ -1,5 +1,5 @@
 # conda activate myigwn-py39
-# export OMP_NUM_THREADS=24
+# export OMP_NUM_THREADS=4
 
 
 import numpy as np
@@ -17,7 +17,7 @@ from torch import nn
 
 import river.data
 from river.data.datagenerator import DataGeneratorBilbyFD
-from river.data.dataset import DatasetSVDStrainFDFromSVDWFonGPU, DatasetSVDStrainFDFromSVDWFonGPUBatch
+from river.data.dataset import DatasetSVDStrainFDFromSVDWFonGPU, DatasetSVDStrainFDFromSVDWFonGPUBatch, DatasetConvStrainFDFromSVDWFonGPU, DatasetConvStrainFDFromSVDWFonGPUBatch
 #import river.data.utils as datautils
 from river.data.utils import *
 
@@ -86,7 +86,7 @@ def main():
 
 
     logger.info(f'Loading precalculated data.')
-    train_filenames = glob.glob(f"{config_precaldata['train']['folder']}/batch*/*.h5")[:8]
+    train_filenames = glob.glob(f"{config_precaldata['train']['folder']}/batch*/*.h5")#[:8]
     valid_filenames = glob.glob(f"{config_precaldata['valid']['folder']}/batch*/*.h5")
     #logger.info(f'{len(train_precaldata_filelist)}, {len(valid_precaldata_filelist)}')
     
@@ -97,22 +97,32 @@ def main():
     batch_size_train = config_training['batch_size_train']
     minibatch_size_train = config_training['minibatch_size_train']
     batch_size_valid = config_training['batch_size_valid']
-
-
-    dataset_train = DatasetSVDStrainFDFromSVDWFonGPUBatch(train_filenames, PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY, data_generator,
-                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, minibatch_size=minibatch_size_train, fix_extrinsic=True)
-    dataset_valid = DatasetSVDStrainFDFromSVDWFonGPU(valid_filenames, PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY, data_generator,
-                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, fix_extrinsic=True)
+    minibatch_size_valid = config_training['minibatch_size_valid']
 
     
+    dataset_train = DatasetConvStrainFDFromSVDWFonGPUBatch(train_filenames, PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY, data_generator,
+                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, minibatch_size=minibatch_size_train, fix_extrinsic=False,
+                                     shuffle=False, add_noise=True, reparameterize=True)
+    dataset_valid = DatasetConvStrainFDFromSVDWFonGPUBatch(valid_filenames, PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY, data_generator,
+                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, minibatch_size=minibatch_size_valid, fix_extrinsic=False,
+                                     shuffle=False, add_noise=True, reparameterize=True)
+    '''
+    
+    dataset_train = DatasetSVDStrainFDFromSVDWFonGPUBatch(train_filenames, PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY, data_generator,
+                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, minibatch_size=minibatch_size_train, fix_extrinsic=False,
+                                     shuffle=False, add_noise=True, reparameterize=True)
+    dataset_valid = DatasetSVDStrainFDFromSVDWFonGPUBatch(valid_filenames, PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY, data_generator,
+                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, minibatch_size=minibatch_size_valid, fix_extrinsic=False,
+                                     shuffle=False, add_noise=True, reparameterize=True)
+    '''
 
     Nsample = len(dataset_train)*minibatch_size_train
-    Nvalid = len(dataset_valid)
+    Nvalid = len(dataset_valid)*minibatch_size_valid
     logger.info(f'Nsample: {Nsample}, Nvalid: {Nvalid}.')
     logger.info(f'batch_size_train: {batch_size_train}, batch_size_valid: {batch_size_valid}')
 
     train_loader = DataLoader(dataset_train, batch_size=batch_size_train // minibatch_size_train, shuffle=False)
-    valid_loader = DataLoader(dataset_valid, batch_size=batch_size_valid, shuffle=False)
+    valid_loader = DataLoader(dataset_valid, batch_size=batch_size_valid // minibatch_size_valid, shuffle=False)
 
 
     #model = GlasNSFConv1DRes(config).to(device)
@@ -177,7 +187,7 @@ def main():
     for epoch in range(start_epoch, max_epoch):    
         
         train_loss, train_loss_std = train_GlasNSFWarpper(model, optimizer, train_loader, device=device, minibatch_size=minibatch_size_train)
-        valid_loss, valid_loss_std = eval_GlasNSFWarpper(model, valid_loader, device=device)
+        valid_loss, valid_loss_std = eval_GlasNSFWarpper(model, valid_loader, device=device, minibatch_size=minibatch_size_valid)
 
 
         train_losses.append(train_loss)
@@ -217,7 +227,7 @@ def main():
             logger.info(f'Loaded model states from {ckpt_path}, and best epoch {best_epoch}. Going from there with a smaller lr.')
             lr_updated_epoch = epoch
             '''
-        dataset_train.shuffle_indexinfile()
+        #dataset_train.shuffle_indexinfile()
         dataset_train.shuffle_wflist()
         train_loader = DataLoader(dataset_train, batch_size=batch_size_train // minibatch_size_train, shuffle=False)
 if __name__ == "__main__":
