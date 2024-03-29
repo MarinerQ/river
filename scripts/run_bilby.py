@@ -14,7 +14,7 @@ import os
 
 duration = 32
 sampling_frequency = 2048
-label = 'lowspin'
+label = 'lowspin_50Hz32s'
 outdir = f'full_PE_runs/{label}'
 if not os.path.exists(outdir):
     os.mkdir(outdir)
@@ -37,7 +37,7 @@ injection_parameters = dict(
 #injection_parameters = bilby.gw.conversion.generate_all_bbh_parameters(injection_parameters)
 
 #print(injection_parameters)
-waveform_arguments = dict(waveform_approximant='IMRPhenomPv2_NRTidal', minimum_frequency=20., reference_frequency=20)
+waveform_arguments = dict(waveform_approximant='IMRPhenomPv2_NRTidal', minimum_frequency=50., reference_frequency=20)
 
 
 waveform_generator = bilby.gw.WaveformGenerator(
@@ -88,7 +88,7 @@ priors['lambda_1'] = bilby.gw.prior.Uniform(name='lambda_1', minimum=0, maximum=
 priors['lambda_2'] = bilby.gw.prior.Uniform(name='lambda_2', minimum=0, maximum=5000)
 
 #priors['luminosity_distance'] = bilby.gw.prior.UniformSourceFrame(name='luminosity_distance', minimum=10, maximum=200)
-priors['luminosity_distance'] = bilby.gw.prior.UniformComovingVolume(name='luminosity_distance', minimum=10, maximum=200)
+priors['luminosity_distance'] = bilby.gw.prior.Uniform(name='luminosity_distance', minimum=10, maximum=200)
 priors['dec'] = bilby.core.prior.analytical.Cosine(name='dec')
 priors['ra'] = bilby.gw.prior.Uniform(name='ra', minimum=0, maximum=2 * np.pi, boundary='periodic')
 priors['theta_jn'] = bilby.core.prior.Sine(name='theta_jn')
@@ -108,7 +108,7 @@ likelihood = bilby.gw.likelihood.GravitationalWaveTransient(
 samplername = 'dynesty'
 
 result = bilby.run_sampler(
-    likelihood=likelihood, priors=priors, sampler=samplername, nlive=2000, nact=10, dlogz=0.1,
+    likelihood=likelihood, priors=priors, sampler=samplername, nlive=1000, nact=10, dlogz=0.1,
     injection_parameters=injection_parameters, outdir=outdir, label=label, npool=4)
 
 

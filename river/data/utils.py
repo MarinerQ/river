@@ -1,6 +1,7 @@
 import numpy as np
 import h5py 
 import bilby
+import glob
 
 #PARAMETER_NAMES_PRECESSINGBNS_BILBY = ['mass_1', 'mass_2', 'a_1', 'a_2', 'tilt_1', 'tilt_2', 'phi_12', 'phi_jl', 'lambda_1', 'lambda_2', 'theta_jn', 'luminosity_distance', 'ra', 'dec', 'psi', 'phase', 'geocent_time' ]
 PARAMETER_NAMES_ALL_PRECESSINGBNS_BILBY = ['mass_1', 'mass_2', 'chirp_mass', 'mass_ratio', 'a_1', 'a_2', 'tilt_1', 'tilt_2', 'phi_12', 'phi_jl', 'lambda_1', 'lambda_2', 'lambda_tilde', 'delta_lambda_tilde', 'theta_jn', 'luminosity_distance', 'ra', 'dec', 'psi', 'phase', 'geocent_time' ]
@@ -36,7 +37,21 @@ def recursively_load_dict_contents_from_group(h5file, path):
     return ans
 
 
-
+def load_asd(data_folder, detector_names, freqs_interp=None, is_asd=True):
+    asd_dict = {}
+    for detname in detector_names:
+        asd_dict[detname] = []
+        filenames = glob.glob(f"{data_folder}/{detname}/*.txt")
+        for filename in filenames:
+            asd = np.loadtxt(filename)
+            if freqs_interp is not None:
+                asd_interp = np.interp(freqs_interp, asd[:,0], asd[:,1])
+            else:
+                asd_interp = asd[:,1]
+            if not is_asd:
+                asd_interp = asd_interp**0.5
+            asd_dict[detname].append(asd_interp)
+    return asd_dict
 
 ##################### source parameters #####################
 

@@ -1,1 +1,1 @@
-from . import pca,conv,mlp
+from . import pca,conv,mlp,simple_vit_1d

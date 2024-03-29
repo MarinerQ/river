@@ -20,7 +20,8 @@ MEAN_VAR_DICT_BNS = {
     'luminosity_distance': (105, 3008.333333),
     'phase': (np.pi,np.pi**2/3),
     'X': (1.5, 5/12), # X = (psi+phase) / pi
-    'psiprime': (1, 1/3)  # psiprime = psi/ (pi/2)
+    'psiprime': (1, 1/3),  # psiprime = psi/ (pi/2),
+    'timing_error': (0, 0.01**2),
 }
 
 def normalize(x, mean, var):
@@ -32,24 +33,48 @@ def inverse_normalize(xbar, mean, var):
     return x
 
 
-def reparameterize(para, paraname):
+def reparameterize(para, paraname, all_para_dict=None):
     if paraname == 'chirp_mass':
         mean ,var = MEAN_VAR_DICT_BNS['log10_chirp_mass']
         new_para = normalize(np.log10(para), mean, var)
         #mean ,var = MEAN_VAR_DICT_BNS['chirp_mass']
         #new_para = normalize(para, mean, var)
+    elif paraname == 'psi' and all_para_dict:
+        # psi -> psiprime
+        mean ,var = MEAN_VAR_DICT_BNS['psiprime']
+        psi = para
+        psiprime = psi/ (np.pi/2)
+        new_para = normalize(psiprime, mean, var)
+    elif paraname == 'phase' and all_para_dict:
+        # phase -> X 
+        mean ,var = MEAN_VAR_DICT_BNS['X']
+        phase = para
+        psi = all_para_dict['psi']
+        X = (psi+phase) / np.pi
+        new_para = normalize(X, mean, var)
     else:
         mean, var = MEAN_VAR_DICT_BNS[paraname]
         new_para = normalize(para, mean, var)
 
     return new_para
 
-def inverse_reparameterize(new_para, paraname):
+def inverse_reparameterize(new_para, paraname, all_para_dict=None):
     if paraname == 'chirp_mass':
         mean ,var = MEAN_VAR_DICT_BNS['log10_chirp_mass']
         #mean ,var = MEAN_VAR_DICT_BNS['chirp_mass']
         para = inverse_normalize(new_para, mean, var)
         para = 10**para
+    elif paraname == 'psi' and all_para_dict:
+        mean ,var = MEAN_VAR_DICT_BNS['psiprime']
+        psiprime = inverse_normalize(new_para, mean, var)
+        psi = psiprime*np.pi/2
+        para = psi 
+    elif paraname == 'phase' and all_para_dict:
+        mean ,var = MEAN_VAR_DICT_BNS['X']
+        X = inverse_normalize(new_para, mean, var)
+        psi = inverse_reparameterize(all_para_dict['psi'], 'psi', all_para_dict)
+        phase = X*np.pi - psi 
+        para = phase 
     else:
         mean, var = MEAN_VAR_DICT_BNS[paraname]
         para = inverse_normalize(new_para, mean, var)

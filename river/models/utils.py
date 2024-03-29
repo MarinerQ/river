@@ -14,6 +14,7 @@ import scipy
 import pandas as pd
 from .embedding.conv import EmbeddingConv1D, EmbeddingConv2D, MyEmbeddingConv2D,MyEmbeddingConv1D, EmbeddingResConv1DMLP, EmbeddingConv1DMLP
 from .embedding.mlp import EmbeddingMLP1D, ResnetMLP1D
+from .embedding.simple_vit_1d import SimpleViT
 
 ############################################
 ########## Data Loading functions ##########
@@ -55,10 +56,10 @@ def save_loss_data(train_losses, valid_losses, outdir, logscale='true', test_los
     ymin = min(min(train_losses), min(valid_losses)) - 3
     plt.ylim(ymin, max(train_losses))
 
-    if logscale and ymin>0:
-        plt.yscale('log')
-    if len(train_losses)>100:
-        plt.xscale('log')
+    #if logscale and ymin>0:
+    #    plt.yscale('log')
+    #if len(train_losses)>100:
+    #    plt.xscale('log')
     
     #plt.ylim(3, 1.2*max(train_losses))
     plt.savefig(f'{outdir}/losses.png')
@@ -77,7 +78,9 @@ def get_embd_dim(embd):
 def get_model(config_dict):
     config_dict_cpy = config_dict.copy()
     model_name = config_dict_cpy.pop('model')
-    if model_name == 'EmbeddingConv1D':
+    if model_name == 'SimpleViT':
+        return SimpleViT(**config_dict_cpy)
+    elif model_name == 'EmbeddingConv1D':
         return EmbeddingConv1D(**config_dict_cpy)
     elif model_name == 'EmbeddingResConv1DMLP':
         return EmbeddingResConv1DMLP(**config_dict_cpy)
@@ -431,7 +434,7 @@ def sample_glasflow_v3(flow, embedding, resnet, dataset, detector_names, ipca_ge
 
 
 
-def train_GlasNSFWarpper(model, optimizer, dataloader, device='cpu', minibatch_size=0):
+def train_GlasNSFWarpper(model, optimizer, dataloader, device='cpu', minibatch_size=1):
     model.train()
     loss_list = []
     for theta, x in dataloader:
@@ -439,7 +442,7 @@ def train_GlasNSFWarpper(model, optimizer, dataloader, device='cpu', minibatch_s
         theta = theta.to(device)
         x = x.to(device)
         
-        if minibatch_size>0:
+        if minibatch_size>1:
             # x: [bs, minibatch_size, nchannel, nbasis]
             # theta: [bs, minibatch_size, npara]
             bs = x.shape[0]
@@ -458,14 +461,14 @@ def train_GlasNSFWarpper(model, optimizer, dataloader, device='cpu', minibatch_s
     std_loss = torch.stack(loss_list).std().item()
     return mean_loss, std_loss
 
-def eval_GlasNSFWarpper(model, dataloader, device='cpu', minibatch_size=0):
+def eval_GlasNSFWarpper(model, dataloader, device='cpu', minibatch_size=1):
     model.eval()
     loss_list = []
     with torch.no_grad():
         for theta, x in dataloader:
             theta = theta.to(device)
             x = x.to(device)
-            if minibatch_size>0:
+            if minibatch_size>1:
                 # x: [bs, minibatch_size, nchannel, nbasis]
                 # theta: [bs, minibatch_size, npara]
                 bs = x.shape[0]
