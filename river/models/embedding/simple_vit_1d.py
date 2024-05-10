@@ -8,7 +8,6 @@ from torch import nn
 from einops import rearrange
 from einops.layers.torch import Rearrange
 
-# helpers
 
 def posemb_sincos_1d(patches, temperature = 10000, dtype = torch.float32):
     _, n, dim, device, dtype = *patches.shape, patches.device, patches.dtype
@@ -89,7 +88,7 @@ class SimpleViT(nn.Module):
         patch_dim = channels * patch_size
 
         self.to_patch_embedding = nn.Sequential(
-            Rearrange('b c (n p) -> b n (p c)', p = patch_size),
+            Rearrange('b c (n p) -> b n (p c)', p = patch_size), # n = num_patches
             nn.LayerNorm(patch_dim),
             nn.Linear(patch_dim, dim),
             nn.LayerNorm(dim),
@@ -99,6 +98,7 @@ class SimpleViT(nn.Module):
 
         self.to_latent = nn.Identity()
         self.linear_head = nn.Linear(dim, num_classes)
+        #self.linear_head = nn.Linear(dim*num_patches, num_classes)
 
     def forward(self, series):
         *_, n, dtype = *series.shape, series.dtype
@@ -109,10 +109,13 @@ class SimpleViT(nn.Module):
 
         x = self.transformer(x)
         x = x.mean(dim = 1)
+        #x = x.flatten(1,2)
 
         x = self.to_latent(x)
         return self.linear_head(x)
 
+
+'''
 if __name__ == '__main__':
 
     v = SimpleViT(
@@ -127,3 +130,5 @@ if __name__ == '__main__':
 
     time_series = torch.randn(4, 3, 256)
     logits = v(time_series) # (4, 1000)
+
+'''

@@ -48,12 +48,12 @@ if __name__ == "__main__":
 
     # training_parameters
     config_dict['training_parameters'] = {}
-    config_dict['training_parameters']['batch_size_train'] = 8192
+    config_dict['training_parameters']['batch_size_train'] = 4096
     config_dict['training_parameters']['minibatch_size_train'] = 1024
     config_dict['training_parameters']['batch_size_valid'] = 500
-    config_dict['training_parameters']['minibatch_size_valid'] = 1
+    config_dict['training_parameters']['minibatch_size_valid'] = 10
     config_dict['training_parameters']['batch_size_test'] = 10
-    config_dict['training_parameters']['lr'] = 5e-4
+    config_dict['training_parameters']['lr'] = 1e-4
     config_dict['training_parameters']['weight_decay'] = 1e-5
     config_dict['training_parameters']['gamma'] = 0.7
     config_dict['training_parameters']['max_epoch'] = 1000
@@ -73,12 +73,12 @@ if __name__ == "__main__":
     # Embedding
     config_dict['model_parameters']['embedding'] = {}
     config_dict['model_parameters']['embedding']['model'] = 'SimpleViT'
-    NCOND = 256
+    NCOND = 128
     config_dict['model_parameters']['embedding']['seq_len'] = 3328
     config_dict['model_parameters']['embedding']['patch_size'] = 256
     config_dict['model_parameters']['embedding']['num_classes'] = NCOND
     config_dict['model_parameters']['embedding']['dim'] = 1024 # 1024
-    config_dict['model_parameters']['embedding']['depth'] = 6 # 6
+    config_dict['model_parameters']['embedding']['depth'] = 24 # 6
     config_dict['model_parameters']['embedding']['heads'] = 8 # 8
     config_dict['model_parameters']['embedding']['mlp_dim'] = 2048 # 2048
     config_dict['model_parameters']['embedding']['channels'] = 6 # (real+imag) * Ndet
@@ -95,8 +95,8 @@ if __name__ == "__main__":
     config_dict['model_parameters']['flow']['n_neurons'] = 96  # 32 by default
     config_dict['model_parameters']['flow']['batch_norm_between_transforms'] = True
     config_dict['model_parameters']['flow']['batch_norm_within_blocks'] = True
-    config_dict['model_parameters']['flow']['n_blocks_per_transform'] = 3  # 2 by default, 5
-    config_dict['model_parameters']['flow']['num_bins'] = 6  # 4 by default, 8
+    config_dict['model_parameters']['flow']['n_blocks_per_transform'] = 2  # 2 by default, 5
+    config_dict['model_parameters']['flow']['num_bins'] = 4  # 4 by default, 8
     config_dict['model_parameters']['flow']['tail_bound'] = 1 # 5 by default, 1
 
 

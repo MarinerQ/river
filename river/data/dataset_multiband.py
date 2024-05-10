@@ -8,6 +8,7 @@ import pickle
 import random
 import glob
 import sealgw.simulation as sealsim
+import time
 
 class DatasetMBStrainFDFromMBWFonGPU(Dataset):
     '''
@@ -88,7 +89,8 @@ class DatasetMBStrainFDFromMBWFonGPU(Dataset):
         x = self.compute_strain_tensors(hp_mb, hc_mb, injection_parameters)
 
         theta = self.get_theta(injection_parameters)
-        return theta, torch.cat((x.real, x.imag)).float()
+        return theta,  torch.cat((x.real, x.imag)).float()
+        #return theta, torch.cat((self.farray.unsqueeze(0), torch.cat((x.real, x.imag)).float()))  
 
     def get_index(self, index, sample_per_file):
         index_of_file = index // sample_per_file
@@ -125,6 +127,7 @@ class DatasetMBStrainFDFromMBWFonGPU(Dataset):
     def compute_strain_tensors(self, hp_mb, hc_mb, injection_parameters):
         num_ifos = len(self.ifos)
         x = torch.zeros((num_ifos, self.Npoint), dtype=torch.complex64, device=self.device)
+        #x = self.farray.repeat((num_ifos,1)) + 1j*self.farray.repeat((num_ifos,1))
         tc_est = injection_parameters['geocent_time'] + injection_parameters['timing_error']
         for i, det in enumerate(self.ifos):
             detname = det.name
@@ -146,6 +149,7 @@ class DatasetMBStrainFDFromMBWFonGPU(Dataset):
                 d_mb = h_mb_whitened
             
             x[i] = d_mb
+            #x[i] += d_mb
         return x
 
     def compute_detector_factors(self, det, injection_parameters):
@@ -250,17 +254,25 @@ class DatasetMBStrainFDFromMBWFonGPUBatch(DatasetMBStrainFDFromMBWFonGPU):
         index = index*self.minibatch_size
         
         index_end = index + self.minibatch_size
+        #if self.sample_per_file % index_end == 0:
+        #    index_end -= 1
         index_of_file, index_in_file = self.get_index(index, self.sample_per_file)
         index_of_file_end, index_in_file_end = self.get_index(index_end, self.sample_per_file)
-        if index_of_file_end>=len(self.precalwf_filelist):
-            index_of_file_end = len(self.precalwf_filelist)-1
-            index_in_file_end = self.sample_per_file
-        wf_dict_list = []
-        for i in range(index_of_file, index_of_file_end+1):
-            wf_dict_list.append(self.get_precalwf_dict(i))
-        
-        hp_mb, hc_mb = self.get_waveform_tensors_batch(wf_dict_list, index_in_file, index_in_file_end)
-        injection_parameters = self.get_injection_parameters_batch(wf_dict_list,index_in_file, index_in_file_end)
+
+        #if index_of_file!=index_of_file_end:
+        #    print(index, self.sample_per_file)
+        #    print(index_of_file, index_of_file_end)
+        #    raise Exception('index eeerror!')
+        assert index_of_file_end==index_of_file or index_in_file_end==0
+        #if index_of_file_end>=len(self.precalwf_filelist):
+        #    index_of_file_end = len(self.precalwf_filelist)-1
+        #    index_in_file_end = self.sample_per_file
+        #wf_dict_list = []
+        #for i in range(index_of_file, index_of_file_end+1):
+        #    wf_dict_list.append(self.get_precalwf_dict(i))
+        wf_dict = self.get_precalwf_dict(index_of_file, index_in_file_end)
+        hp_mb, hc_mb = self.get_waveform_tensors_batch(wf_dict, index_in_file, index_in_file_end)
+        injection_parameters = self.get_injection_parameters_batch(wf_dict,index_in_file, index_in_file_end)
         injection_parameters = self.update_injection_parameters_batch(injection_parameters)
         
         dL = torch.from_numpy(injection_parameters['luminosity_distance']).to(self.device).unsqueeze(-1)
@@ -272,56 +284,86 @@ class DatasetMBStrainFDFromMBWFonGPUBatch(DatasetMBStrainFDFromMBWFonGPU):
         theta = self.get_theta(injection_parameters)
 
         return theta, torch.cat((x.real, x.imag), axis=1).float()
-    
-    def get_precalwf_dict(self, index_of_file):
-        if self.cached_wf_file_index == index_of_file:
-            return self.cached_wf_file
-        else:
-            try:
-                wf_dict = load_dict_from_hdf5(self.precalwf_filelist[index_of_file])
-            except:
-                raise Exception(f'index_of_file: {index_of_file}')
-            self.cached_wf_file = wf_dict
-            self.cached_wf_file_index = index_of_file
-        return wf_dict
-    
-    def get_waveform_tensors_batch(self, wf_dict_list, index_in_file, index_in_file_end):
-        for i, wf_dict in enumerate(wf_dict_list):
-            if i==len(wf_dict_list)-1:
-                end_index = index_in_file_end
-            else:
-                end_index = self.sample_per_file
-                
-            index = self.random_index_in_file[index_in_file:end_index]
-            index_p = 2*index
-            index_c = 2*index + 1
-            if i==0:
-                hp = (torch.from_numpy(wf_dict['waveforms'][index_p]).type(torch.complex64)).to(self.device)
-                hc = (torch.from_numpy(wf_dict['waveforms'][index_c]).type(torch.complex64)).to(self.device)
+        #return theta, torch.cat((self.farray.repeat((self.minibatch_size,1,1)), torch.cat((x.real, x.imag), axis=1).float()), axis=1)
         
-            else:
-                hp_new = (torch.from_numpy(wf_dict['waveforms'][index_p]).type(torch.complex64)).to(self.device)
-                hc_new = (torch.from_numpy(wf_dict['waveforms'][index_c]).type(torch.complex64)).to(self.device)
-                
-                hp = torch.cat((hp,hp_new))
-                hc = torch.cat((hc,hc_new))
+
+    
+    def get_precalwf_dict(self, index_of_file, index_in_file_end=None):
+        if self.cached_wf_file_index == index_of_file:
+            #print('hah!')
+            wd = self.cached_wf_file
+            if index_in_file_end == 0: # load the next waveform file in advance. Don't know why this can speed up loading...
+                print('huh')
+                self.cached_wf_file = load_dict_from_hdf5(self.precalwf_filelist[index_of_file])
+                self.cached_wf_file_index = index_of_file+1
+            #return self.cached_wf_file
+            return wd
+        else:
+            #del self.cached_wf_file
+            print('huh')
+            self.cached_wf_file = load_dict_from_hdf5(self.precalwf_filelist[index_of_file])
+            if 0:
+                try:
+                    print('huh')
+                    #t1 = time.time()
+                    del self.cached_wf_file
+                    self.cached_wf_file = load_dict_from_hdf5(self.precalwf_filelist[index_of_file])
+                    #t = time.time() - t1
+                    #print(t)
+                except:
+                    raise Exception(f'index_of_file: {index_of_file}')
+            self.cached_wf_file_index = index_of_file
+        return self.cached_wf_file
+    
+    def get_waveform_tensors_batch(self, wf_dict, index_in_file, index_in_file_end):
+        #for i, wf_dict in enumerate(wf_dict_list):
+        #if i==len(wf_dict_list)-1:
+        #    end_index = index_in_file_end
+        #else:
+        #    end_index = self.sample_per_file
+        if index_in_file_end == 0:
+            end_index = None
+        else:
+            end_index = index_in_file_end
+        index = self.random_index_in_file[index_in_file:end_index]
+        index_p = 2*index
+        index_c = 2*index + 1
+        #if i==0:
+        #    hp = (torch.from_numpy(wf_dict['waveforms'][index_p]).type(torch.complex64)).to(self.device)
+        #    hc = (torch.from_numpy(wf_dict['waveforms'][index_c]).type(torch.complex64)).to(self.device)
+    
+        #else:
+        #    hp_new = (torch.from_numpy(wf_dict['waveforms'][index_p]).type(torch.complex64)).to(self.device)
+        #    hc_new = (torch.from_numpy(wf_dict['waveforms'][index_c]).type(torch.complex64)).to(self.device)
+            
+        #    hp = torch.cat((hp,hp_new))
+        #    hc = torch.cat((hc,hc_new))
+
+        hp = (torch.from_numpy(wf_dict['waveforms'][index_p]).type(torch.complex64)).to(self.device)
+        hc = (torch.from_numpy(wf_dict['waveforms'][index_c]).type(torch.complex64)).to(self.device)
                     
         return hp, hc    
     
-    def get_injection_parameters_batch(self, wf_dict_list, index_in_file, index_in_file_end):
+    def get_injection_parameters_batch(self, wf_dict, index_in_file, index_in_file_end):
         para_name_list = ['chirp_mass', 'mass_ratio', 'a_1', 'a_2', 'tilt_1', 'tilt_2', 'phi_12', 'phi_jl',
                     'lambda_tilde', 'delta_lambda_tilde', 'theta_jn', 'phase']
-        for i, wf_dict in enumerate(wf_dict_list):
-            if i==len(wf_dict_list)-1:
-                end_index = index_in_file_end
-            else:
-                end_index = self.sample_per_file
+        #for i, wf_dict in enumerate(wf_dict_list):
+        #    if i==len(wf_dict_list)-1:
+        #        end_index = index_in_file_end
+        #    else:
+        #        end_index = self.sample_per_file
 
-            index_random = self.random_index_in_file[index_in_file:end_index]
-            if i==0:
-                injection_parameters = {key: wf_dict['injection_parameters'][key][index_random] for key in para_name_list}
-            else:
-                injection_parameters = {key: np.append(injection_parameters[key], wf_dict['injection_parameters'][key][index_random]) for key in para_name_list}
+        if index_in_file_end == 0:
+            end_index = None
+        else:
+            end_index = index_in_file_end
+        index_random = self.random_index_in_file[index_in_file:end_index]
+        injection_parameters = {key: wf_dict['injection_parameters'][key][index_random] for key in para_name_list}
+        #    index_random = self.random_index_in_file[index_in_file:end_index]
+        #    if i==0:
+        #        injection_parameters = {key: wf_dict['injection_parameters'][key][index_random] for key in para_name_list}
+        #    else:
+        #        injection_parameters = {key: np.append(injection_parameters[key], wf_dict['injection_parameters'][key][index_random]) for key in para_name_list}
 
         return injection_parameters
     
@@ -335,6 +377,7 @@ class DatasetMBStrainFDFromMBWFonGPUBatch(DatasetMBStrainFDFromMBWFonGPU):
     def compute_strain_tensors_batch(self, hp_mb, hc_mb, injection_parameters):
         num_ifos = len(self.ifos)
         x = torch.zeros((self.minibatch_size, num_ifos, self.Npoint), dtype=torch.complex64, device=self.device)
+        #x = self.farray.repeat((self.minibatch_size, num_ifos,1)) + 1j*self.farray.repeat((self.minibatch_size, num_ifos,1))
         tc_est = injection_parameters['geocent_time'][0] + injection_parameters['timing_error'][0]
         for i,det in enumerate(self.ifos):
             detname = det.name
@@ -359,6 +402,7 @@ class DatasetMBStrainFDFromMBWFonGPUBatch(DatasetMBStrainFDFromMBWFonGPU):
                 d_mb = h_mb_whitened
             
             x[:,i,:] = d_mb
+            #x[:,i,:] += d_mb
             
         return x
         

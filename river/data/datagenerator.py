@@ -144,9 +144,15 @@ class DataGeneratorBilbyFD:
         self.data['injection_parameters'] = {}
         self.data['SNRs'] = {}
         for detname in self.detector_names:
-            self.data['strains'][detname] = []
-            self.data['PSDs'][detname] = []
-            self.data['SNRs'][detname] = []
+            if detname == 'ET':
+                for dn in ['ET1', 'ET2', 'ET3']:
+                    self.data['strains'][dn] = []
+                    self.data['PSDs'][dn] = []
+                    self.data['SNRs'][dn] = []
+            else:
+                self.data['strains'][detname] = []
+                self.data['PSDs'][detname] = []
+                self.data['SNRs'][detname] = []
         for paraname in self.parameter_names:
             self.data['injection_parameters'][paraname] = []
         self.data['Nsample'] = [0]

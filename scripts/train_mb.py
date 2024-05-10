@@ -97,7 +97,7 @@ def main():
     batch_size_valid = config_training['batch_size_valid']
     minibatch_size_valid = config_training['minibatch_size_valid']
 
-
+    fix_extrinsic = False
     dataset_train = DatasetMBStrainFDFromMBWFonGPUBatch(wf_folder = wf_folder_train,
                                                         asd_folder = asd_folder,
                                                         parameter_names = PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY, 
@@ -112,7 +112,7 @@ def main():
                                                         device = device,
                                                         minibatch_size = minibatch_size_train,
                                                         add_noise = True,
-                                                        fix_extrinsic = False,
+                                                        fix_extrinsic = fix_extrinsic,
                                                         reparameterize = True,
                                                         random_asd = False)
 
@@ -130,7 +130,7 @@ def main():
                                                         device = device,
                                                         minibatch_size = minibatch_size_valid,
                                                         add_noise = True,
-                                                        fix_extrinsic = False,
+                                                        fix_extrinsic = fix_extrinsic,
                                                         reparameterize = True,
                                                         random_asd = False)
 
@@ -199,15 +199,16 @@ def main():
     logger.info(f'Training started, device:{device}. ')
 
     for epoch in range(start_epoch, max_epoch):    
-        
-        train_loss, train_loss_std = train_GlasNSFWarpper(model, optimizer, train_loader, device=device, minibatch_size=minibatch_size_train)
-        valid_loss, valid_loss_std = eval_GlasNSFWarpper(model, valid_loader, device=device, minibatch_size=minibatch_size_valid)
-
+        logger.info(f'epoch {epoch}')
+        train_loss, train_loss_std = train_GlasNSFWarpper(model, optimizer, train_loader, device=device, minibatch_size=minibatch_size_train,logger=logger)
+        logger.info(f'train loss = {train_loss}±{train_loss_std}')
+        valid_loss, valid_loss_std = eval_GlasNSFWarpper(model, valid_loader, device=device, minibatch_size=minibatch_size_valid,logger=logger)
+        logger.info(f'valid loss = {valid_loss}±{valid_loss_std}')
 
         train_losses.append(train_loss)
         valid_losses.append(valid_loss)
 
-        logger.info(f'epoch {epoch}, train loss = {train_loss}±{train_loss_std}, valid loss = {valid_loss}±{valid_loss_std}')
+        #logger.info(f'epoch {epoch}, train loss = {train_loss}±{train_loss_std}, valid loss = {valid_loss}±{valid_loss_std}')
 
         if valid_loss==min(valid_losses):
             best_epoch = epoch

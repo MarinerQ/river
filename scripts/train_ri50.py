@@ -98,23 +98,24 @@ def main():
     minibatch_size_train = config_training['minibatch_size_train']
     batch_size_valid = config_training['batch_size_valid']
     minibatch_size_valid = config_training['minibatch_size_valid']
+    fix_extrinsic = False
 
-    
+    '''
     dataset_train = DatasetConvStrainFDFromSVDWFonGPUBatch(train_filenames, PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY, data_generator,
-                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, minibatch_size=minibatch_size_train, fix_extrinsic=False,
+                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, minibatch_size=minibatch_size_train, fix_extrinsic=fix_extrinsic,
                                      shuffle=False, add_noise=True, reparameterize=True)
     dataset_valid = DatasetConvStrainFDFromSVDWFonGPUBatch(valid_filenames, PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY, data_generator,
-                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, minibatch_size=minibatch_size_valid, fix_extrinsic=False,
+                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, minibatch_size=minibatch_size_valid, fix_extrinsic=fix_extrinsic,
                                      shuffle=False, add_noise=True, reparameterize=True)
     '''
     
     dataset_train = DatasetSVDStrainFDFromSVDWFonGPUBatch(train_filenames, PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY, data_generator,
-                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, minibatch_size=minibatch_size_train, fix_extrinsic=False,
+                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, minibatch_size=minibatch_size_train, fix_extrinsic=fix_extrinsic,
                                      shuffle=False, add_noise=True, reparameterize=True)
     dataset_valid = DatasetSVDStrainFDFromSVDWFonGPUBatch(valid_filenames, PARAMETER_NAMES_CONTEXT_PRECESSINGBNS_BILBY, data_generator,
-                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, minibatch_size=minibatch_size_valid, fix_extrinsic=False,
+                                     Nbasis=Nbasis, Vhfile=Vhfile, device=device, minibatch_size=minibatch_size_valid, fix_extrinsic=fix_extrinsic,
                                      shuffle=False, add_noise=True, reparameterize=True)
-    '''
+    
 
     Nsample = len(dataset_train)*minibatch_size_train
     Nvalid = len(dataset_valid)*minibatch_size_valid
@@ -186,14 +187,20 @@ def main():
 
     for epoch in range(start_epoch, max_epoch):    
         
-        train_loss, train_loss_std = train_GlasNSFWarpper(model, optimizer, train_loader, device=device, minibatch_size=minibatch_size_train)
-        valid_loss, valid_loss_std = eval_GlasNSFWarpper(model, valid_loader, device=device, minibatch_size=minibatch_size_valid)
+        #train_loss, train_loss_std = train_GlasNSFWarpper(model, optimizer, train_loader, device=device, minibatch_size=minibatch_size_train,logger=logger)
+        #valid_loss, valid_loss_std = eval_GlasNSFWarpper(model, valid_loader, device=device, minibatch_size=minibatch_size_valid,logger=logger)
+
+        logger.info(f'epoch {epoch}')
+        train_loss, train_loss_std = train_GlasNSFWarpper(model, optimizer, train_loader, device=device, minibatch_size=minibatch_size_train,logger=logger)
+        logger.info(f'train loss = {train_loss}±{train_loss_std}')
+        valid_loss, valid_loss_std = eval_GlasNSFWarpper(model, valid_loader, device=device, minibatch_size=minibatch_size_valid,logger=logger)
+        logger.info(f'valid loss = {valid_loss}±{valid_loss_std}')
 
 
         train_losses.append(train_loss)
         valid_losses.append(valid_loss)
 
-        logger.info(f'epoch {epoch}, train loss = {train_loss}±{train_loss_std}, valid loss = {valid_loss}±{valid_loss_std}')
+        #logger.info(f'epoch {epoch}, train loss = {train_loss}±{train_loss_std}, valid loss = {valid_loss}±{valid_loss_std}')
 
         if valid_loss==min(valid_losses):
             best_epoch = epoch

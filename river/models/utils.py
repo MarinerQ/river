@@ -434,9 +434,10 @@ def sample_glasflow_v3(flow, embedding, resnet, dataset, detector_names, ipca_ge
 
 
 
-def train_GlasNSFWarpper(model, optimizer, dataloader, device='cpu', minibatch_size=1):
+def train_GlasNSFWarpper(model, optimizer, dataloader, device='cpu', minibatch_size=1, logger=None):
     model.train()
     loss_list = []
+    nbatch=0
     for theta, x in dataloader:
         optimizer.zero_grad()
         theta = theta.to(device)
@@ -454,16 +455,19 @@ def train_GlasNSFWarpper(model, optimizer, dataloader, device='cpu', minibatch_s
         loss = -model.log_prob(theta, x).mean()
         loss.backward()
         optimizer.step()
-
+        if logger and nbatch%100==0:
+            logger.info(f'----batch {nbatch}, train loss = {loss.detach()}.----')
         loss_list.append(loss.detach())
+        nbatch+=1
 
     mean_loss = torch.stack(loss_list).mean().item() # mean(list of mean losses of each batch)
     std_loss = torch.stack(loss_list).std().item()
     return mean_loss, std_loss
 
-def eval_GlasNSFWarpper(model, dataloader, device='cpu', minibatch_size=1):
+def eval_GlasNSFWarpper(model, dataloader, device='cpu', minibatch_size=1, logger=None):
     model.eval()
     loss_list = []
+    nbatch = 0
     with torch.no_grad():
         for theta, x in dataloader:
             theta = theta.to(device)
@@ -478,7 +482,11 @@ def eval_GlasNSFWarpper(model, dataloader, device='cpu', minibatch_size=1):
                 theta = theta.view(bs*minibatch_size, npara)
                 x = x.view(bs*minibatch_size, nchannel, nbasis)
             loss = -model.log_prob(theta, x).mean()
+
+            if logger and nbatch%100==0:
+                logger.info(f'----batch {nbatch}, valid loss = {loss.detach()}.----')
             loss_list.append(loss.detach())
+            nbatch += 1
 
     mean_loss = torch.stack(loss_list).mean().item()
     std_loss = torch.stack(loss_list).std().item()
