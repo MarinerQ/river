@@ -2,6 +2,13 @@ import numpy as np
 import h5py 
 import bilby
 import glob
+import lal 
+
+LAL_MTSUN_SI = lal.MTSUN_SI
+LAL_PI = lal.PI
+LAL_GAMMA = lal.GAMMA
+Pi_p2 = LAL_PI**2
+
 
 #PARAMETER_NAMES_PRECESSINGBNS_BILBY = ['mass_1', 'mass_2', 'a_1', 'a_2', 'tilt_1', 'tilt_2', 'phi_12', 'phi_jl', 'lambda_1', 'lambda_2', 'theta_jn', 'luminosity_distance', 'ra', 'dec', 'psi', 'phase', 'geocent_time' ]
 PARAMETER_NAMES_ALL_PRECESSINGBNS_BILBY = ['mass_1', 'mass_2', 'chirp_mass', 'mass_ratio', 'a_1', 'a_2', 'tilt_1', 'tilt_2', 'phi_12', 'phi_jl', 'lambda_1', 'lambda_2', 'lambda_tilde', 'delta_lambda_tilde', 'theta_jn', 'luminosity_distance', 'ra', 'dec', 'psi', 'phase', 'geocent_time' ]
@@ -226,3 +233,53 @@ def get_precalwf_list(folder, nbatch, file_per_batch, filename_prefix, **kwargs)
             wf_dict = load_dict_from_hdf5(filename)
             file_list.append(wf_dict)
     return file_list
+
+
+def inner_product(aa, bb, frequency, PSD):
+    psd_interp = PSD.power_spectral_density_interpolated(frequency)
+    integrand = np.conj(aa) * bb / psd_interp
+
+    df = np.diff(frequency)
+
+    integral = np.sum(integrand[:-1] * df)
+    return 4. * np.real(integral)
+
+
+def tau_of_f( f, m1=None, m2=None, mc=None, chi=0):
+    '''
+    Use 0PN if mc is provided. Otherwise use 3.5PN (TaylorF2), based on XLALSimInspiralTaylorF2ReducedSpinChirpTime
+    '''
+    
+    if mc is None:
+        if isinstance(f, (float, int, np.float64)):
+            tau = bilby.gw.utils.calculate_time_to_merger(f, m1, m2, safety=1)
+        elif isinstance(f, (np.ndarray, list)):
+            m = m1 + m2
+            eta = m1 * m2 / (m * m)
+            eta2 = eta * eta
+            chi2 = chi * chi
+            sigma0 = (-12769 * (-81. + 4. * eta)) / (16. * (-113. + 76. * eta) * (-113. + 76. * eta))
+            gamma0 = (565 * (-146597. + 135856. * eta + 17136. * eta2)) / (2268. * (-113. + 76. * eta))
+
+            v = (LAL_PI * m * LAL_MTSUN_SI * f)**(1/3)
+            tk = np.zeros((8, len(f)))  # chirp time coefficients up to 3.5 PN
+
+            # chirp time coefficients up to 3.5PN
+            tk[0] = (5. * m * LAL_MTSUN_SI) / (256. * np.power(v, 8) * eta)
+            tk[1] = 0.
+            tk[2] = 2.9484126984126986 + (11 * eta) / 3.
+            tk[3] = (-32 * LAL_PI) / 5. + (226. * chi) / 15.
+            tk[4] = 6.020630590199042 - 2 * sigma0 * chi2 + (5429 * eta) / 504. + (617 * eta2) / 72.
+            tk[5] = (3 * gamma0 * chi) / 5. - (7729 * LAL_PI) / 252. + (13 * LAL_PI * eta) / 3.
+            tk[6] = -428.291776175525 + (128 * Pi_p2) / 3. + (6848 * LAL_GAMMA) / 105. + (3147553127 * eta) / 3.048192e6 - \
+                    (451 * Pi_p2 * eta) / 12. - (15211 * eta2) / 1728. + (25565 * eta2 * eta) / 1296. + (6848 * np.log(4 * v)) / 105.
+            tk[7] = (-15419335 * LAL_PI) / 127008. - (75703 * LAL_PI * eta) / 756. + (14809 * LAL_PI * eta2) / 378.
+            
+            vk = v.reshape((len(f), 1)) ** np.arange(8)  # v^k
+            tau = (1+np.sum(tk[2:,:] * vk.T[2:,:], axis=0) ) * tk[0]
+        else:
+            print(f, type(f))
+            raise Exception("f is not a number!")
+    else:
+        tau = 2.18 * (1.21 / mc) ** (5 / 3) * (100 / f) ** (8 / 3)
+    return tau
