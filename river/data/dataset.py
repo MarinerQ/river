@@ -338,7 +338,7 @@ class DatasetSVDMBStrainFDFromSVDWFonGPUBatch(Dataset):
 
         x, injection_parameters, netsnr = self.compute_strain_tensors_batch(hp_svd, hc_svd, injection_parameters)
         theta = self.get_theta(injection_parameters)
-        return theta, torch.cat((x.real, x.imag), axis=1).float(), netsnr
+        return theta.float(), torch.cat((x.real, x.imag), axis=1).float(), netsnr.float()
 
     def get_index(self, index, sample_per_file, is_end=False):
         index_of_file = index // sample_per_file

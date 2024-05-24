@@ -247,186 +247,8 @@ def sample_zukoflow(flow, embedding_proj, embedding_noproj, dataset, detector_na
 
     return samples.movedim(0,1).movedim(1,2), loss
 
-
-def train_glasflow(flow, embedding_proj, embedding_noproj, optimizer, dataloader, detector_names, ipca_gen, device='cpu',downsample_rate=1):
-    flow.train()
-    embedding_proj.train()
-    embedding_noproj.train()
-    loss_list = []
-    for theta, strain, psd in dataloader:
-        theta = theta.to(device)
-        optimizer.zero_grad()
-
-        condition = get_condition_2proj(embedding_proj, embedding_noproj, strain, psd, detector_names, ipca_gen, device, downsample_rate)
-
-        loss = -flow.log_prob(theta, conditional=condition).mean() # mean(list of losses of elements in this batch)
-        loss.backward()
-        optimizer.step()
-
-        loss_list.append(loss.detach())
-
-    mean_loss = torch.stack(loss_list).mean().item() # mean(list of mean losses of each batch)
-    std_loss = torch.stack(loss_list).std().item()
-    return mean_loss, std_loss
-
-def eval_glasflow(flow, embedding_proj, embedding_noproj, dataloader, detector_names, ipca_gen, device='cpu',downsample_rate=1):
-    flow.eval()
-    embedding_proj.eval()
-    embedding_noproj.eval()
-    loss_list = []
-    with torch.no_grad():
-        for theta, strain, psd in dataloader:
-            theta = theta.to(device)
-            condition = get_condition_2proj(embedding_proj, embedding_noproj, strain, psd, detector_names, ipca_gen, device, downsample_rate)
-
-            loss = -flow.log_prob(theta, conditional=condition).mean()
-            loss_list.append(loss.detach())
-
-    mean_loss = torch.stack(loss_list).mean().item()
-    std_loss = torch.stack(loss_list).std().item()
-    return mean_loss, std_loss
-
-
-def sample_glasflow(flow, embedding_proj, embedding_noproj, dataset, detector_names, ipca_gen, device='cpu', Nsample=5000,downsample_rate=1):
-    flow.eval()
-    embedding_proj.eval()
-    embedding_noproj.eval()
-    loss_list = []
-    sample_list = []
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
-    with torch.no_grad():
-        for theta, strain, psd in dataloader:
-            theta = theta.to(device)
-            condition = get_condition_2proj(embedding_proj, embedding_noproj, strain, psd, detector_names, ipca_gen, device, downsample_rate)
-            lencond = condition.shape[-1]
-            lentheta = theta.shape[-1]
-            loss = -flow.log_prob(theta.expand((Nsample,lentheta)), conditional=condition.expand((Nsample,lencond ))).mean()
-            samples = flow.sample(Nsample, conditional=condition.expand((Nsample,lencond )))
-            loss_list.append(loss.detach().cpu())
-            sample_list.append(samples.cpu().numpy())
-    samples = np.array(sample_list)
-    samples = torch.from_numpy(samples)
-    return samples.movedim(1,2), loss_list
-
-
-def train_glasflow_v2(flow, embedding, optimizer, dataloader, detector_names, ipca_gen, device='cpu',downsample_rate=1):
-    flow.train()
-    embedding.train()
-    loss_list = []
-    for theta, strain, psd in dataloader:
-        theta = theta.to(device)
-        optimizer.zero_grad()
-
-        condition = get_condition_1proj(embedding, strain, psd, detector_names, ipca_gen, device, downsample_rate)
-
-        loss = -flow.log_prob(theta, conditional=condition).mean() # mean(list of losses of elements in this batch)
-        loss.backward()
-        optimizer.step()
-
-        loss_list.append(loss.detach())
-
-    mean_loss = torch.stack(loss_list).mean().item() # mean(list of mean losses of each batch)
-    std_loss = torch.stack(loss_list).std().item()
-    return mean_loss, std_loss
-
-def eval_glasflow_v2(flow, embedding, dataloader, detector_names, ipca_gen, device='cpu',downsample_rate=1):
-    flow.eval()
-    embedding.eval()
-    loss_list = []
-    with torch.no_grad():
-        for theta, strain, psd in dataloader:
-            theta = theta.to(device)
-            condition = get_condition_1proj(embedding, strain, psd, detector_names, ipca_gen, device, downsample_rate)
-
-            loss = -flow.log_prob(theta, conditional=condition).mean()
-            loss_list.append(loss.detach())
-
-    mean_loss = torch.stack(loss_list).mean().item()
-    std_loss = torch.stack(loss_list).std().item()
-    return mean_loss, std_loss
-
-
-def sample_glasflow_v2(flow, embedding, dataset, detector_names, ipca_gen, device='cpu', Nsample=5000,downsample_rate=1):
-    flow.eval()
-    embedding.eval()
-    loss_list = []
-    sample_list = []
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
-    with torch.no_grad():
-        for theta, strain, psd in dataloader:
-            theta = theta.to(device)
-            condition = get_condition_1proj(embedding, strain, psd, detector_names, ipca_gen, device, downsample_rate)
-            lencond = condition.shape[-1]
-            lentheta = theta.shape[-1]
-            loss = -flow.log_prob(theta.expand((Nsample,lentheta)), conditional=condition.expand((Nsample,lencond ))).mean()
-            samples = flow.sample(Nsample, conditional=condition.expand((Nsample,lencond )))
-            loss_list.append(loss.detach().cpu())
-            sample_list.append(samples.cpu().numpy())
-    samples = np.array(sample_list)
-    samples = torch.from_numpy(samples)
-    return samples.movedim(1,2), loss_list
-
-
-def train_glasflow_v3(flow, embedding, resnet, optimizer, dataloader, detector_names, ipca_gen, device='cpu',downsample_rate=1):
-    flow.train()
-    embedding.train()
-    loss_list = []
-    for theta, strain, psd in dataloader:
-        theta = theta.to(device)
-        optimizer.zero_grad()
-
-        condition = get_condition_1projres(embedding, resnet, strain, psd, detector_names, ipca_gen, device, downsample_rate)
-
-        loss = -flow.log_prob(theta, conditional=condition).mean() # mean(list of losses of elements in this batch)
-        loss.backward()
-        optimizer.step()
-
-        loss_list.append(loss.detach())
-
-    mean_loss = torch.stack(loss_list).mean().item() # mean(list of mean losses of each batch)
-    std_loss = torch.stack(loss_list).std().item()
-    return mean_loss, std_loss
-
-def eval_glasflow_v3(flow, embedding, resnet, dataloader, detector_names, ipca_gen, device='cpu',downsample_rate=1):
-    flow.eval()
-    embedding.eval()
-    loss_list = []
-    with torch.no_grad():
-        for theta, strain, psd in dataloader:
-            theta = theta.to(device)
-            condition = get_condition_1projres(embedding, resnet, strain, psd, detector_names, ipca_gen, device, downsample_rate)
-
-            loss = -flow.log_prob(theta, conditional=condition).mean()
-            loss_list.append(loss.detach())
-
-    mean_loss = torch.stack(loss_list).mean().item()
-    std_loss = torch.stack(loss_list).std().item()
-    return mean_loss, std_loss
-
-
-def sample_glasflow_v3(flow, embedding, resnet, dataset, detector_names, ipca_gen, device='cpu', Nsample=5000,downsample_rate=1):
-    flow.eval()
-    embedding.eval()
-    loss_list = []
-    sample_list = []
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
-    with torch.no_grad():
-        for theta, strain, psd in dataloader:
-            theta = theta.to(device)
-            condition = get_condition_1projres(embedding, resnet, strain, psd, detector_names, ipca_gen, device, downsample_rate)
-            lencond = condition.shape[-1]
-            lentheta = theta.shape[-1]
-            loss = -flow.log_prob(theta.expand((Nsample,lentheta)), conditional=condition.expand((Nsample,lencond ))).mean()
-            samples = flow.sample(Nsample, conditional=condition.expand((Nsample,lencond )))
-            loss_list.append(loss.detach().cpu())
-            sample_list.append(samples.cpu().numpy())
-    samples = np.array(sample_list)
-    samples = torch.from_numpy(samples)
-    return samples.movedim(1,2), loss_list
-
-
-
-def train_GlasNSFWarpper(model, optimizer, dataloader, device='cpu', minibatch_size=1, logger=None):
+'''
+def train_GlasNSFWarpper(model, optimizer, dataloader, device='cpu', minibatch_size=1, logger=None,extra_condition=None):
     model.train()
     loss_list = []
     nbatch=0
@@ -444,7 +266,11 @@ def train_GlasNSFWarpper(model, optimizer, dataloader, device='cpu', minibatch_s
             npara = theta.shape[-1]
             theta = theta.view(bs*minibatch_size, npara)
             x = x.view(bs*minibatch_size, nchannel, nbasis)
-        loss = -model.log_prob(theta, x).mean()
+        if extra_condition:
+            extra_condition = extra_condition.to(device)
+            loss = -model.log_prob(theta, x, extra_condition).mean()
+        else:
+            loss = -model.log_prob(theta, x).mean()
         loss.backward()
         optimizer.step()
         if logger and nbatch%100==0:
@@ -456,7 +282,7 @@ def train_GlasNSFWarpper(model, optimizer, dataloader, device='cpu', minibatch_s
     std_loss = torch.stack(loss_list).std().item()
     return mean_loss, std_loss
 
-def eval_GlasNSFWarpper(model, dataloader, device='cpu', minibatch_size=1, logger=None):
+def eval_GlasNSFWarpper(model, dataloader, device='cpu', minibatch_size=1, logger=None, extra_condition=None):
     model.eval()
     loss_list = []
     nbatch = 0
@@ -473,7 +299,11 @@ def eval_GlasNSFWarpper(model, dataloader, device='cpu', minibatch_size=1, logge
                 npara = theta.shape[-1]
                 theta = theta.view(bs*minibatch_size, npara)
                 x = x.view(bs*minibatch_size, nchannel, nbasis)
-            loss = -model.log_prob(theta, x).mean()
+            if extra_condition:
+                extra_condition = extra_condition.to(device)
+                loss = -model.log_prob(theta, x, extra_condition).mean()
+            else:
+                loss = -model.log_prob(theta, x).mean()
 
             if logger and nbatch%100==0:
                 logger.info(f'----batch {nbatch}, valid loss = {loss.detach()}.----')
@@ -485,7 +315,7 @@ def eval_GlasNSFWarpper(model, dataloader, device='cpu', minibatch_size=1, logge
     return mean_loss, std_loss
 
 
-def sample_GlasNSFWarpper(model, dataset, detector_names=None, ipca_gen=None, device='cpu', Nsample=5000, downsample_rate=1):
+def sample_GlasNSFWarpper(model, dataset, device='cpu', Nsample=5000, extra_condition=None):
     model.eval()
     #loss_list = []
     #sample_list = []
@@ -495,14 +325,19 @@ def sample_GlasNSFWarpper(model, dataset, detector_names=None, ipca_gen=None, de
             theta = theta.to(device)
             x = x.to(device)
             #x = project_strain_data_FDAPhi(strain, psd, detector_names, ipca_gen).to(device)
-            loss = -model.log_prob(theta, x).mean()
-            samples = model.sample((Nsample,), x)
+            if extra_condition:
+                extra_condition = extra_condition.to(device)
+                loss = -model.log_prob(theta, x, extra_condition).mean()
+                samples = model.sample((Nsample,), x, extra_condition)
+            else:
+                loss = -model.log_prob(theta, x).mean()
+                samples = model.sample((Nsample,), x)
 
             #loss_list.append(loss.detach())
             #sample_list.append(samples)
 
     return samples.movedim(0,1).movedim(1,2), loss
-
+'''
 
 def make_results(sample_list, injection_parameters_list, parameter_names):
     Nresult = len(sample_list)
