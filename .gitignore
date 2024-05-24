@@ -12,6 +12,8 @@ training_data
 *.pkl 
 *.dat 
 archived/
+scripts/
+test/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

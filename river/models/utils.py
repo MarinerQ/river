@@ -78,30 +78,22 @@ def get_embd_dim(embd):
 def get_model(config_dict):
     config_dict_cpy = config_dict.copy()
     model_name = config_dict_cpy.pop('model')
-    if model_name == 'SimpleViT':
-        return SimpleViT(**config_dict_cpy)
-    elif model_name == 'EmbeddingConv1D':
-        return EmbeddingConv1D(**config_dict_cpy)
-    elif model_name == 'EmbeddingResConv1DMLP':
-        return EmbeddingResConv1DMLP(**config_dict_cpy)
-    elif model_name == 'EmbeddingConv1DMLP':
-        return EmbeddingConv1DMLP(**config_dict_cpy)
-    elif model_name == "MyEmbeddingConv2D":
-        return MyEmbeddingConv2D(**config_dict_cpy)
-    elif model_name == 'MyEmbeddingConv1D':
-        return MyEmbeddingConv1D(**config_dict_cpy)
-    elif model_name == 'EmbeddingConv2D':
-        return EmbeddingConv2D(**config_dict_cpy)
-    elif model_name == 'EmbeddingMLP1D':
-        return EmbeddingMLP1D(**config_dict_cpy)
-    elif model_name == 'ResnetMLP1D':
-        return ResnetMLP1D(**config_dict_cpy)
-    elif model_name == 'CouplingNSF':
-        return CouplingNSF(**config_dict_cpy)
-    elif model_name == 'NSF':
-        return zuko.flows.NSF(**config_dict_cpy)
-    elif model_name == 'CNF':
-        return zuko.flows.CNF(**config_dict_cpy)
+    model_classes = {
+        'SimpleViT': SimpleViT,
+        'EmbeddingConv1D': EmbeddingConv1D,
+        'EmbeddingResConv1DMLP': EmbeddingResConv1DMLP,
+        'EmbeddingConv1DMLP': EmbeddingConv1DMLP,
+        'MyEmbeddingConv2D': MyEmbeddingConv2D,
+        'MyEmbeddingConv1D': MyEmbeddingConv1D,
+        'EmbeddingConv2D': EmbeddingConv2D,
+        'EmbeddingMLP1D': EmbeddingMLP1D,
+        'ResnetMLP1D': ResnetMLP1D,
+        'CouplingNSF': CouplingNSF,
+        'NSF': zuko.flows.NSF,
+        'CNF': zuko.flows.CNF
+    }
+    if model_name in model_classes:
+        return model_classes[model_name](**config_dict_cpy)
     else:
         raise Exception("Model not implemented!")
 

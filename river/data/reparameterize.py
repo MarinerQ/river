@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 
 MEAN_VAR_DICT_BNS = {
     'log10_chirp_mass': (0.21893410187780157, 0.009063873587706993), #assume m1, m2 ~ U(1,3)
@@ -80,3 +81,49 @@ def inverse_reparameterize(new_para, paraname, all_para_dict=None):
         para = inverse_normalize(new_para, mean, var)
 
     return para
+
+
+
+class ReparametrizerGPU:
+    def __init__(self, context_parameter_names, example_injection_parameters, device='cuda'):
+        '''
+        example_injection_parameters: dict of numpy.ndarray
+        '''
+        self.device = device
+        self.context_parameter_names = context_parameter_names 
+
+        example_injection_parameters["X"] = (example_injection_parameters["psi"] + example_injection_parameters["phase"]) / np.pi
+        example_injection_parameters["psiprime"] = example_injection_parameters["psi"] / (np.pi/2)
+        self.MEAN_VAR_DICT = {}
+        for paraname, para in example_injection_parameters.items():
+            para = torch.tensor(para, device=self.device)
+            mean, var = torch.mean(para), torch.var(para)
+            self.MEAN_VAR_DICT[paraname] = (mean, var)
+        
+        self.mu = torch.tensor([self.MEAN_VAR_DICT[name][0] for name in self.context_parameter_names], device=self.device)
+        self.sigma = torch.tensor([self.MEAN_VAR_DICT[name][1]**0.5 for name in self.context_parameter_names], device=self.device)
+
+
+    def reparameterize(self, injection_parameters, tensor_input=False):
+        '''
+        injection_parameters should be the normal bilby injection parameters
+        '''
+        injection_parameters["X"] = (injection_parameters["psi"] + injection_parameters["phase"]) / np.pi
+        injection_parameters["psiprime"] = injection_parameters["psi"] / (np.pi/2)
+        theta = torch.stack([injection_parameters[name].clone().detach() if tensor_input else torch.tensor(injection_parameters[name], device=self.device) for name in self.context_parameter_names]).T
+        #theta = torch.stack([torch.tensor(injection_parameters[name], device=self.device) for name in self.context_parameter_names]).T
+        theta_bar = (theta - self.mu.unsqueeze(0)) / self.sigma.unsqueeze(0)
+        return theta_bar
+
+    def inverse_reparameterize(self, theta_bar):
+        theta = theta_bar * self.sigma.unsqueeze(0) + self.mu.unsqueeze(0)
+        injection_parameters = {}
+        for i, name in enumerate(self.context_parameter_names):
+            injection_parameters[name] = theta[:, i].detach().cpu().numpy()
+
+        injection_parameters['psi'] = injection_parameters['psiprime'] * (np.pi/2)
+        injection_parameters['phase'] = injection_parameters['X'] * np.pi - injection_parameters['psi']
+
+        return injection_parameters
+
+

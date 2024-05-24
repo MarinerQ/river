@@ -23,6 +23,7 @@ class DataGeneratorBilbyFD:
             custom_psd_path=None,
             use_sealgw_detector=False,
             antenna_response_change=False,
+            antenna_response_change_timescale=8,
             snr_threshold = 8,
             **kwargs):
 
@@ -44,6 +45,7 @@ class DataGeneratorBilbyFD:
         self.whitened = False
         self.numpyed = False
         self.antenna_response_change = antenna_response_change
+        self.antenna_response_change_timescale = antenna_response_change_timescale
 
         # set ifos
         if use_sealgw_detector:
@@ -57,6 +59,7 @@ class DataGeneratorBilbyFD:
             det.frequency_mask = (det.frequency_array >= self.f_low) * (det.frequency_array <= self.f_high)
             if use_sealgw_detector:
                 det.antenna_response_change = self.antenna_response_change
+                det.antenna_response_change_timescale = self.antenna_response_change_timescale
 
         self.frequency_mask = det.frequency_mask
         self.frequency_array = det.frequency_array
@@ -296,9 +299,11 @@ class DataGeneratorBilbyFDMB(DataGeneratorBilbyFD):
                  custom_psd_path=None,
                  use_sealgw_detector=True,
                  antenna_response_change=True,
+                 antenna_response_change_timescale=8,
                  snr_threshold = 1,
                  N_points = 256,
                  SAFE_DURATION_FACTOR = 2,
+                 scheme = 'search_Npoints',
                  **kwargs):
         super().__init__(
             source_type=source_type,
@@ -315,6 +320,7 @@ class DataGeneratorBilbyFDMB(DataGeneratorBilbyFD):
             custom_psd_path=custom_psd_path,
             use_sealgw_detector=use_sealgw_detector,
             antenna_response_change=antenna_response_change,
+            antenna_response_change_timescale=antenna_response_change_timescale,
             snr_threshold=snr_threshold,
             **kwargs
         )
@@ -326,10 +332,13 @@ class DataGeneratorBilbyFDMB(DataGeneratorBilbyFD):
                                     f_ref=f_ref, 
                                     f_high=f_high, 
                                     waveform_approximant = waveform_approximant,
-                                    _SAFE_DURATION_FACTOR=SAFE_DURATION_FACTOR)
+                                    _SAFE_DURATION_FACTOR=SAFE_DURATION_FACTOR,
+                                    scheme=scheme)
         self.farray_mb = self.waveform_generator.frequency_array
         self.N_bands = self.waveform_generator.N_bands
         self.data_length = len(self.farray_mb)
+        self.scheme = scheme
+        self.duration_array = self.waveform_generator.duration_array
 
 
 
@@ -361,7 +370,8 @@ class DataGeneratorBilbyFDMB(DataGeneratorBilbyFD):
                 h_resp = det.get_detector_response(
                         waveform_polarizations, injection_parameters, frequencies=self.farray_mb
                     )
-                snr = inner_product(h_resp, h_resp, self.farray_mb, det.power_spectral_density)**0.5
+                snr = inner_product(h_resp, h_resp, self.duration_array,
+                                     det.power_spectral_density.power_spectral_density_interpolated(self.farray_mb))**0.5
                 temp_data_dict['strains'][detname] = h_resp
                 temp_data_dict['SNRs'][detname] = snr
                 netsnr += snr**2

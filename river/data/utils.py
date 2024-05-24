@@ -3,6 +3,7 @@ import h5py
 import bilby
 import glob
 import lal 
+import torch 
 
 LAL_MTSUN_SI = lal.MTSUN_SI
 LAL_PI = lal.PI
@@ -235,13 +236,16 @@ def get_precalwf_list(folder, nbatch, file_per_batch, filename_prefix, **kwargs)
     return file_list
 
 
-def inner_product(aa, bb, frequency, PSD):
-    psd_interp = PSD.power_spectral_density_interpolated(frequency)
-    integrand = np.conj(aa) * bb / psd_interp
-
-    df = np.diff(frequency)
-
-    integral = np.sum(integrand[:-1] * df)
+def inner_product(aa, bb, durations=None, psd=None):
+    '''
+    pkg should be np or torch
+    '''
+    if durations is None:
+        durations = np.ones(aa.shape)
+    if psd is None:
+        psd = np.ones(aa.shape)
+    integrand = np.conj(aa) * bb / psd / durations
+    integral = np.sum(integrand, axis=-1)
     return 4. * np.real(integral)
 
 
@@ -250,36 +254,168 @@ def tau_of_f( f, m1=None, m2=None, mc=None, chi=0):
     Use 0PN if mc is provided. Otherwise use 3.5PN (TaylorF2), based on XLALSimInspiralTaylorF2ReducedSpinChirpTime
     '''
     
-    if mc is None:
+    if isinstance(f, torch.Tensor):
+        f = f.numpy()
+        
+    if isinstance(f, list):
+        f = np.array(f)
+            
+    if mc is None: # use 3.5PN
         if isinstance(f, (float, int, np.float64)):
             tau = bilby.gw.utils.calculate_time_to_merger(f, m1, m2, safety=1)
-        elif isinstance(f, (np.ndarray, list)):
-            m = m1 + m2
-            eta = m1 * m2 / (m * m)
-            eta2 = eta * eta
-            chi2 = chi * chi
-            sigma0 = (-12769 * (-81. + 4. * eta)) / (16. * (-113. + 76. * eta) * (-113. + 76. * eta))
-            gamma0 = (565 * (-146597. + 135856. * eta + 17136. * eta2)) / (2268. * (-113. + 76. * eta))
+        elif isinstance(f, (np.ndarray)):
+            if isinstance(m1, (float, int, np.float64)):
+                m = m1 + m2
+                eta = m1 * m2 / (m * m)
+                eta2 = eta * eta
+                chi2 = chi * chi
+                sigma0 = (-12769 * (-81. + 4. * eta)) / (16. * (-113. + 76. * eta) * (-113. + 76. * eta))
+                gamma0 = (565 * (-146597. + 135856. * eta + 17136. * eta2)) / (2268. * (-113. + 76. * eta))
 
-            v = (LAL_PI * m * LAL_MTSUN_SI * f)**(1/3)
-            tk = np.zeros((8, len(f)))  # chirp time coefficients up to 3.5 PN
+                v = (LAL_PI * m * LAL_MTSUN_SI * f)**(1/3)
+                tk = np.zeros((8, len(f)))  # chirp time coefficients up to 3.5 PN
 
-            # chirp time coefficients up to 3.5PN
-            tk[0] = (5. * m * LAL_MTSUN_SI) / (256. * np.power(v, 8) * eta)
-            tk[1] = 0.
-            tk[2] = 2.9484126984126986 + (11 * eta) / 3.
-            tk[3] = (-32 * LAL_PI) / 5. + (226. * chi) / 15.
-            tk[4] = 6.020630590199042 - 2 * sigma0 * chi2 + (5429 * eta) / 504. + (617 * eta2) / 72.
-            tk[5] = (3 * gamma0 * chi) / 5. - (7729 * LAL_PI) / 252. + (13 * LAL_PI * eta) / 3.
-            tk[6] = -428.291776175525 + (128 * Pi_p2) / 3. + (6848 * LAL_GAMMA) / 105. + (3147553127 * eta) / 3.048192e6 - \
-                    (451 * Pi_p2 * eta) / 12. - (15211 * eta2) / 1728. + (25565 * eta2 * eta) / 1296. + (6848 * np.log(4 * v)) / 105.
-            tk[7] = (-15419335 * LAL_PI) / 127008. - (75703 * LAL_PI * eta) / 756. + (14809 * LAL_PI * eta2) / 378.
-            
-            vk = v.reshape((len(f), 1)) ** np.arange(8)  # v^k
-            tau = (1+np.sum(tk[2:,:] * vk.T[2:,:], axis=0) ) * tk[0]
+                # chirp time coefficients up to 3.5PN
+                tk[0] = (5. * m * LAL_MTSUN_SI) / (256. * np.power(v, 8) * eta)
+                tk[1] = 0.
+                tk[2] = 2.9484126984126986 + (11 * eta) / 3.
+                tk[3] = (-32 * LAL_PI) / 5. + (226. * chi) / 15.
+                tk[4] = 6.020630590199042 - 2 * sigma0 * chi2 + (5429 * eta) / 504. + (617 * eta2) / 72.
+                tk[5] = (3 * gamma0 * chi) / 5. - (7729 * LAL_PI) / 252. + (13 * LAL_PI * eta) / 3.
+                tk[6] = -428.291776175525 + (128 * Pi_p2) / 3. + (6848 * LAL_GAMMA) / 105. + (3147553127 * eta) / 3.048192e6 - \
+                        (451 * Pi_p2 * eta) / 12. - (15211 * eta2) / 1728. + (25565 * eta2 * eta) / 1296. + (6848 * np.log(4 * v)) / 105.
+                tk[7] = (-15419335 * LAL_PI) / 127008. - (75703 * LAL_PI * eta) / 756. + (14809 * LAL_PI * eta2) / 378.
+
+                vk = v.reshape((len(f), 1)) ** np.arange(8)  # v^k
+                tau = (1+np.sum(tk[2:,:] * vk.T[2:,:], axis=0) ) * tk[0]
+            elif isinstance(m1, np.ndarray):
+                m = m1 + m2
+                eta = m1 * m2 / (m * m)
+                eta2 = eta * eta
+                chi2 = chi * chi
+                sigma0 = (-12769 * (-81. + 4. * eta)) / (16. * (-113. + 76. * eta) * (-113. + 76. * eta))
+                gamma0 = (565 * (-146597. + 135856. * eta + 17136. * eta2)) / (2268. * (-113. + 76. * eta))
+
+
+                # Expand dimensions for batch processing
+                eta = eta[:, np.newaxis]
+                eta2 = eta2[:, np.newaxis]
+                chi = chi[:, np.newaxis]
+                chi2 = chi2[:, np.newaxis]
+                sigma0 = sigma0[:, np.newaxis]
+                gamma0 = gamma0[:, np.newaxis]
+                m_expanded = m[:, np.newaxis]
+                f_expanded = f[np.newaxis, :]
+
+                v = (LAL_PI * m_expanded * LAL_MTSUN_SI * f_expanded)**(1/3)
+                tk = np.zeros((len(m1), 8, len(f)))  # chirp time coefficients up to 3.5 PN for each batch
+
+                # chirp time coefficients up to 3.5PN
+                tk[:, 0, :] = (5. * m_expanded * LAL_MTSUN_SI) / (256. * np.power(v, 8) * eta)
+                tk[:, 1, :] = 0.
+                tk[:, 2, :] = 2.9484126984126986 + (11 * eta) / 3.
+                tk[:, 3, :] = (-32 * LAL_PI) / 5. + (226. * chi) / 15.
+                tk[:, 4, :] = 6.020630590199042 - 2 * sigma0 * chi2 + (5429 * eta) / 504. + (617 * eta2) / 72.
+                tk[:, 5, :] = (3 * gamma0 * chi) / 5. - (7729 * LAL_PI) / 252. + (13 * LAL_PI * eta) / 3.
+                tk[:, 6, :] = -428.291776175525 + (128 * Pi_p2) / 3. + (6848 * LAL_GAMMA) / 105. + (3147553127 * eta) / 3.048192e6 - \
+                              (451 * Pi_p2 * eta) / 12. - (15211 * eta2) / 1728. + (25565 * eta2 * eta) / 1296. + (6848 * np.log(4 * v)) / 105.
+                tk[:, 7, :] = (-15419335 * LAL_PI) / 127008. - (75703 * LAL_PI * eta) / 756. + (14809 * LAL_PI * eta2) / 378.
+
+                vk = np.power(v[:,:, np.newaxis], np.arange(8)).swapaxes(1,2)  # v^k with correct broadcasting
+                tau = (1 + np.sum(tk[:, 2:, :] * vk[:, 2:, :], axis=1)) * tk[:, 0, :]
         else:
             print(f, type(f))
-            raise Exception("f is not a number!")
-    else:
+            raise Exception("Unsupported type of f")
+    else: # use 0PN
         tau = 2.18 * (1.21 / mc) ** (5 / 3) * (100 / f) ** (8 / 3)
     return tau
+
+
+def tau_of_f_gpubatch( f, m1, m2, chi, device='cuda'):
+    '''
+    Use 3.5PN (TaylorF2), based on XLALSimInspiralTaylorF2ReducedSpinChirpTime.
+
+    f, m1, m2, mc, chi must be 1D torch.Tensor. len(f)=Freqs to evaluate, len(m1)=Batch size
+    The return shape is [len(m1), len(f)]
+    '''
+            
+    m = m1 + m2
+    eta = m1 * m2 / (m * m)
+    eta2 = eta * eta
+    chi2 = chi * chi
+    sigma0 = (-12769 * (-81. + 4. * eta)) / (16. * (-113. + 76. * eta) * (-113. + 76. * eta))
+    gamma0 = (565 * (-146597. + 135856. * eta + 17136. * eta2)) / (2268. * (-113. + 76. * eta))
+
+    # Expand dimensions for batch processing
+    eta = eta.unsqueeze(1)
+    eta2 = eta2.unsqueeze(1)
+    chi = chi.unsqueeze(1)
+    chi2 = chi2.unsqueeze(1)
+    sigma0 = sigma0.unsqueeze(1)
+    gamma0 = gamma0.unsqueeze(1)
+    m_expanded = m.unsqueeze(1)
+    f_expanded = f.unsqueeze(0)
+
+    v = (LAL_PI * m_expanded * LAL_MTSUN_SI * f_expanded)**(1/3)
+    tk = torch.zeros((len(m1), 8, len(f))).to(device)  # chirp time coefficients up to 3.5 PN for each batch
+
+    # chirp time coefficients up to 3.5PN
+    tk[:, 0, :] = (5. * m_expanded * LAL_MTSUN_SI) / (256. * torch.pow(v, 8) * eta)
+    tk[:, 1, :] = 0.
+    tk[:, 2, :] = 2.9484126984126986 + (11 * eta) / 3.
+    tk[:, 3, :] = (-32 * LAL_PI) / 5. + (226. * chi) / 15.
+    tk[:, 4, :] = 6.020630590199042 - 2 * sigma0 * chi2 + (5429 * eta) / 504. + (617 * eta2) / 72.
+    tk[:, 5, :] = (3 * gamma0 * chi) / 5. - (7729 * LAL_PI) / 252. + (13 * LAL_PI * eta) / 3.
+    tk[:, 6, :] = -428.291776175525 + (128 * Pi_p2) / 3. + (6848 * LAL_GAMMA) / 105. + (3147553127 * eta) / 3.048192e6 - \
+                    (451 * Pi_p2 * eta) / 12. - (15211 * eta2) / 1728. + (25565 * eta2 * eta) / 1296. + (6848 * torch.log(4 * v)) / 105.
+    tk[:, 7, :] = (-15419335 * LAL_PI) / 127008. - (75703 * LAL_PI * eta) / 756. + (14809 * LAL_PI * eta2) / 378.
+
+    vk = torch.pow(v.unsqueeze(2), torch.arange(8).to(device)).transpose(1,2)  # v^k with correct broadcasting
+    tau = (1 + torch.sum(tk[:, 2:, :] * vk[:, 2:, :], axis=1)) * tk[:, 0, :]
+    return tau
+
+
+def heterodyne(h_input, mc, f, scale_amp=True):
+    wf = h_input.copy()
+    c = lal.C_SI
+    pi = np.pi
+    G = lal.G_SI
+
+    p1 = 3/128/(G*pi*mc*lal.MSUN_SI*f/c**3)**(5/3)
+    h_hd = np.exp(1j*p1)
+    
+    if scale_amp:
+        h_hd /= mc**(5/6) * f**(-7/6)
+
+    if isinstance(wf, dict):
+        for mode in ['plus', 'cross']:
+            wf[mode] = h_input[mode] * h_hd 
+    elif isinstance(wf, np.ndarray):
+        wf*=h_hd
+    else:
+        raise Exception("wf is not a dict or np.ndarray!")
+        
+    return wf
+
+def deheterodyne(h_input, mc, f, scale_amp=True):
+    wf = h_input.copy()
+    c = lal.C_SI
+    pi = np.pi
+    G = lal.G_SI
+
+    p1 = 3/128/(G*pi*mc*lal.MSUN_SI*f/c**3)**(5/3)
+    h_hd = np.exp(1j*p1)
+    
+    if scale_amp:
+        h_hd /= mc**(5/6) * f**(-7/6)
+
+    if isinstance(wf, dict):
+        for mode in ['plus', 'cross']:
+            wf[mode] = h_input[mode] / h_hd 
+    elif isinstance(wf, (np.ndarray, torch.Tensor)):
+        wf/=h_hd
+    else:
+        raise Exception("wf is not a dict or np.ndarray!")
+        
+    return wf
+
