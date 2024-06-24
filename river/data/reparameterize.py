@@ -127,3 +127,37 @@ class ReparametrizerGPU:
         return injection_parameters
 
 
+class ReparametrizerGPUOriginPara:
+    def __init__(self, context_parameter_names, example_injection_parameters, device='cuda'):
+        '''
+        example_injection_parameters: dict of numpy.ndarray
+        '''
+        self.device = device
+        self.context_parameter_names = context_parameter_names 
+
+        self.MEAN_VAR_DICT = {}
+        for paraname, para in example_injection_parameters.items():
+            para = torch.tensor(para, device=self.device)
+            mean, var = torch.mean(para), torch.var(para)
+            self.MEAN_VAR_DICT[paraname] = (mean, var)
+        
+        self.mu = torch.tensor([self.MEAN_VAR_DICT[name][0] for name in self.context_parameter_names], device=self.device)
+        self.sigma = torch.tensor([self.MEAN_VAR_DICT[name][1]**0.5 for name in self.context_parameter_names], device=self.device)
+
+
+    def reparameterize(self, injection_parameters, tensor_input=False):
+        '''
+        injection_parameters should be the normal bilby injection parameters
+        '''
+        theta = torch.stack([injection_parameters[name].clone().detach() if tensor_input else torch.tensor(injection_parameters[name], device=self.device) for name in self.context_parameter_names]).T
+        #theta = torch.stack([torch.tensor(injection_parameters[name], device=self.device) for name in self.context_parameter_names]).T
+        theta_bar = (theta - self.mu.unsqueeze(0)) / self.sigma.unsqueeze(0)
+        return theta_bar
+
+    def inverse_reparameterize(self, theta_bar):
+        theta = theta_bar * self.sigma.unsqueeze(0) + self.mu.unsqueeze(0)
+        injection_parameters = {}
+        for i, name in enumerate(self.context_parameter_names):
+            injection_parameters[name] = theta[:, i].detach().cpu().numpy()
+
+        return injection_parameters

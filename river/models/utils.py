@@ -13,7 +13,7 @@ import scipy
 
 import pandas as pd
 from .embedding.conv import EmbeddingConv1D, EmbeddingConv2D, MyEmbeddingConv2D,MyEmbeddingConv1D, EmbeddingResConv1DMLP, EmbeddingConv1DMLP
-from .embedding.mlp import EmbeddingMLP1D, ResnetMLP1D
+from .embedding.mlp import MLPResNet #EmbeddingMLP1D, ResnetMLP1D
 from .embedding.simple_vit_1d import SimpleViT
 
 ############################################
@@ -86,8 +86,9 @@ def get_model(config_dict):
         'MyEmbeddingConv2D': MyEmbeddingConv2D,
         'MyEmbeddingConv1D': MyEmbeddingConv1D,
         'EmbeddingConv2D': EmbeddingConv2D,
-        'EmbeddingMLP1D': EmbeddingMLP1D,
-        'ResnetMLP1D': ResnetMLP1D,
+        #'EmbeddingMLP1D': EmbeddingMLP1D,
+        #'ResnetMLP1D': ResnetMLP1D,
+        'MLPResNet': MLPResNet,
         'CouplingNSF': CouplingNSF,
         'NSF': zuko.flows.NSF,
         'CNF': zuko.flows.CNF

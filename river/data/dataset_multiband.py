@@ -212,8 +212,8 @@ class DatasetMBStrainFDFromMBWFonGPU(Dataset):
         
     def shuffle_indexinfile(self):
         if self.shuffle:
-            raise Exception('Not implemeted')
-            #self.random_index_in_file = np.random.permutation(self.sample_per_file)
+            #raise Exception('Not implemeted')
+            self.random_index_in_file = np.random.permutation(self.sample_per_file)
         else:
             self.random_index_in_file = np.arange(self.sample_per_file)
 

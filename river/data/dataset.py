@@ -419,7 +419,7 @@ class DatasetSVDMBStrainFDFromSVDWFonGPUBatch(Dataset):
             x[:,i,:] = h_svd 
 
         ref_snr = ref_snr_sq**0.5
-        distance = ref_snr/snr_sample #/ 100
+        distance = ref_snr/snr_sample 
         injection_parameters['luminosity_distance'] = distance
         x = x / distance.unsqueeze(1).unsqueeze(2)
 

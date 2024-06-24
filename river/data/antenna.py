@@ -307,6 +307,9 @@ class GWAntennaOnGPU():
 
     def getgha(self, gpstime, ra):
         # Greenwich hour angle of source (radians).
+        # this gha is measured clockwise, while alpha Eq.6 in arXiv:gr-qc/9804014 is measured counter-clockwise.
+        # also, phi in Eq.B4 in arXiv:gr-qc/0008066 is also counter-clockwise.
+        # therefore, there is an opposite sign when it comes to sin(gha), but cos(gha) is the same.
         gha = torch.zeros_like(gpstime, device=self.device, dtype=self.dtype) - ra
 
         if self.gmst_fit:
