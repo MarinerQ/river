@@ -79,7 +79,7 @@ class Transformer(nn.Module):
         return self.norm(x)
 
 class SimpleViT(nn.Module):
-    def __init__(self, *, seq_len, patch_size, num_classes, dim, depth, heads, mlp_dim, channels = 3, dim_head = 64, **kwargs):
+    def __init__(self, *, seq_len, patch_size, num_classes, dim, depth, heads, mlp_dim, channels = 3, dim_head = 64, pe=True,**kwargs):
         super().__init__()
 
         assert seq_len % patch_size == 0
@@ -98,14 +98,18 @@ class SimpleViT(nn.Module):
 
         self.to_latent = nn.Identity()
         self.linear_head = nn.Linear(dim, num_classes)
+        self.pe = pe
         #self.linear_head = nn.Linear(dim*num_patches, num_classes)
 
     def forward(self, series):
         *_, n, dtype = *series.shape, series.dtype
 
         x = self.to_patch_embedding(series)
-        pe = posemb_sincos_1d(x)
-        x = rearrange(x, 'b ... d -> b (...) d') + pe
+        if self.pe:
+            pe = posemb_sincos_1d(x)
+            x = rearrange(x, 'b ... d -> b (...) d') + pe
+        else:
+            x = rearrange(x, 'b ... d -> b (...) d')
 
         x = self.transformer(x)
         x = x.mean(dim = 1)
