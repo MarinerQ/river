@@ -252,7 +252,8 @@ class DatasetSVDMBStrainFDFromSVDWFonGPUBatch(Dataset):
     '''
     def __init__(self, precalwf_filelist, parameter_names, data_generator, Nbasis_wf, Nbasis_det, Vhfile_dict,
                 snr_min=10, snr_max=200, tmin=-0.01, tmax=0.01, device='cuda',
-                add_noise=True, minibatch_size=1, fix_extrinsic=False, shuffle=False, reparameterizer=None):
+                add_noise=True, minibatch_size=1, fix_extrinsic=False, shuffle=False, reparameterizer=None,
+                scale_amp=False):
         self.precalwf_filelist = precalwf_filelist
         self.parameter_names = parameter_names
         self.data_generator = data_generator
@@ -271,6 +272,7 @@ class DatasetSVDMBStrainFDFromSVDWFonGPUBatch(Dataset):
         self.fix_extrinsic = fix_extrinsic
         self.shuffle = shuffle
         self.reparameterizer = reparameterizer
+        self.scale_amp = scale_amp
 
         # Load V and Vh matrices and convert to tensors
         self.V_wf, self.Vh_wf = loadVandVh(Vhfile_dict['waveform'], Nbasis_wf)
@@ -309,7 +311,8 @@ class DatasetSVDMBStrainFDFromSVDWFonGPUBatch(Dataset):
             V = torch.from_numpy(V).to(self.device)
             whitened_V = (V.T * 1/(psd*self.duration_array/4)**0.5).T
             det_aux[detname] = {'whitened_V': whitened_V.type(torch.complex64),
-                                'PSD': psd}
+                                'PSD': psd,
+                                'V': V}
         return det_aux
 
     def __len__(self):
@@ -367,8 +370,8 @@ class DatasetSVDMBStrainFDFromSVDWFonGPUBatch(Dataset):
         index = self.random_index_in_file[index_in_file:index_in_file_end]
         #hp_svd = (torch.from_numpy(wf_dict['waveform_polarizations']['plus'][index])).type(torch.complex64).to(self.device)
         #hc_svd = (torch.from_numpy(wf_dict['waveform_polarizations']['cross'][index])).type(torch.complex64).to(self.device)
-        hp_svd = (torch.from_numpy(wf_dict['waveforms'][2*index])).type(torch.complex64).to(self.device)
-        hc_svd = (torch.from_numpy(wf_dict['waveforms'][2*index+1])).type(torch.complex64).to(self.device)
+        hp_svd = (torch.from_numpy(wf_dict['waveforms'][2*index][:,:self.Nbasis_wf])).type(torch.complex64).to(self.device)
+        hc_svd = (torch.from_numpy(wf_dict['waveforms'][2*index+1][:,:self.Nbasis_wf])).type(torch.complex64).to(self.device)
 
         para_name_list = ['chirp_mass', 'mass_ratio', 'a_1', 'a_2', 'tilt_1', 'tilt_2', 'phi_12', 'phi_jl',
                     'lambda_tilde', 'delta_lambda_tilde', 'theta_jn', 'phase','mass_1', 'mass_2']
@@ -380,10 +383,13 @@ class DatasetSVDMBStrainFDFromSVDWFonGPUBatch(Dataset):
 
         return hp_svd, hc_svd, injection_parameters
 
-    def get_noise_tensors_batch(self, ):
-        white_noise = (torch.randn((self.minibatch_size, self.Ndet, self.Nbasis_det), device=self.device) + \
-                       1j * torch.randn((self.minibatch_size, self.Ndet, self.Nbasis_det), device=self.device)).type(torch.complex64)
-
+    def get_noise_tensors_batch(self):
+        if not self.scale_amp:
+            white_noise = (torch.randn((self.minibatch_size, self.Ndet, self.Nbasis_det), device=self.device) + \
+                           1j * torch.randn((self.minibatch_size, self.Ndet, self.Nbasis_det), device=self.device)).type(torch.complex64)
+        else:
+            white_noise = (torch.randn((self.minibatch_size, self.Ndet, len(self.farray_mb)), device=self.device) + \
+                           1j * torch.randn((self.minibatch_size, self.Ndet, len(self.farray_mb)), device=self.device)).type(torch.complex64)
         return white_noise
     
     def inner_product(self, a, b, psd):
@@ -412,7 +418,10 @@ class DatasetSVDMBStrainFDFromSVDWFonGPUBatch(Dataset):
             phase2add = torch.exp(-1j * 2 * np.pi * dt * self.farray_mb).type(torch.complex64)
             hh_shifted = h_reconstruct * phase2add
             
-            hh_dehet = hh_shifted * mc.unsqueeze(1)**(5/6) * self.farray_mb.unsqueeze(0)**(-7/6)
+            if self.scale_amp:
+                hh_dehet = hh_shifted * mc.unsqueeze(1)**(5/6) * self.farray_mb.unsqueeze(0)**(-7/6)
+            else:
+                hh_dehet = hh_shifted
             #ref_snr_sq += inner_product(hh_dehet, hh_dehet, self.duration_array, self.det_aux[detname]['PSD'], torch)
             ref_snr_sq += self.inner_product(hh_dehet, hh_dehet, self.det_aux[detname]['PSD'])
             h_svd = torch.einsum('ij,jk->ik', hh_shifted.type(torch.complex64), self.det_aux[detname]['whitened_V'].type(torch.complex64))
@@ -425,10 +434,40 @@ class DatasetSVDMBStrainFDFromSVDWFonGPUBatch(Dataset):
 
         if self.add_noise:
             n_svd = self.get_noise_tensors_batch()
+            if self.scale_amp:
+                scaled_noise = torch.zeros((self.minibatch_size, self.Ndet, self.Nbasis_det), device=self.device).type(torch.complex64)
+                for i,det in enumerate(self.ifos):
+                    n_svd[:,i,:] = n_svd[:,i,:] / mc.unsqueeze(1)**(5/6) / self.farray_mb.unsqueeze(0)**(-7/6)
+                    scaled_noise[:,i,:] = torch.einsum('ij,jk->ik', n_svd[:,i,:].type(torch.complex64), self.det_aux[detname]['V'].type(torch.complex64))
+                n_svd = scaled_noise
+                
             x = x + n_svd
             
         return x, injection_parameters, snr_sample
-    
+
+    def get_example_distances(self, Nexample=10000, Nstart=0):        
+        ref_snr_sq = torch.zeros(Nexample, device=self.device)
+        snr_sample = self.snr_generator.sample((Nexample,)).to(self.device)
+        
+        index = self.random_index_in_file[Nstart:Nstart+Nexample]
+        wf_dict = self.cached_wf_file
+        hp_svd = (torch.from_numpy(wf_dict['waveforms'][2*index][:,:self.Nbasis_wf])).type(torch.complex64).to(self.device)
+        mc = torch.tensor(wf_dict['injection_parameters']['chirp_mass'][index], device=self.device) 
+        Vh_recons = self.Vh_wf
+        hp_reconstruct = torch.einsum('ij,jk->ik', hp_svd.type(torch.complex64), Vh_recons.type(torch.complex64))
+        if self.scale_amp:
+            hp_reconstruct = hp_reconstruct * mc.unsqueeze(1)**(5/6) * self.farray_mb.unsqueeze(0)**(-7/6)
+
+        h_resp_average = hp_reconstruct * 0.2**0.5 * 2
+        for i,det in enumerate(self.ifos):
+            #h_reconstruct = fp*hp_reconstruct + fc*hc_reconstruct
+            ref_snr_sq += self.inner_product(h_resp_average, h_resp_average, self.det_aux[det.name]['PSD'])
+
+        ref_snr = ref_snr_sq**0.5
+        distance = ref_snr/snr_sample 
+
+        return distance
+
     def compute_detector_factors_batch(self, injection_parameters):
         L = len(self.farray_mb)
         bs = self.minibatch_size
@@ -551,7 +590,7 @@ class DatasetSVDMBStrainFDFromSVDWFonGPUBatchParallelDet(DatasetSVDMBStrainFDFro
         phase2add = torch.exp(-1j * 2 * np.pi * dt_list * self.farray_mb.unsqueeze(0)).type(torch.complex64)
         hh_shifted = h_reconstruct * phase2add
         
-        hh_dehet = hh_shifted * mc.unsqueeze(0).unsqueeze(-1)**(5/6) * self.farray_mb.unsqueeze(0).unsqueeze(0)**(-7/6)
+        hh_dehet = hh_shifted #* mc.unsqueeze(0).unsqueeze(-1)**(5/6) * self.farray_mb.unsqueeze(0).unsqueeze(0)**(-7/6)
         
 
         psd_list = torch.stack([self.det_aux[det.name]['PSD'] for det in self.ifos]) # (Ndet, L)
