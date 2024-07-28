@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
-import torchvision.transforms as transforms
+#import torchvision.transforms as transforms
 #from .utils import PARAMETER_NAMES_ALL_PRECESSINGBNS_BILBY
 from .utils import * 
 from .reparameterize import *
