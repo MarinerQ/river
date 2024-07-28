@@ -147,13 +147,15 @@ def generate_BNS_injection_parameters(
         d_min,
         d_max,
         d_power,
+        m_min = 1.1,
+        m_max = 3,
         tc_min=-0.1,
         tc_max=0.1,
         lambda_min = 0,
         lambda_max = 5000,
         intrinsic_only=False,
         **kwargs):
-    mass_1, mass_2 = generate_random_component_mass(Nsample, 1.1, 3)
+    mass_1, mass_2 = generate_random_component_mass(Nsample, m_min, m_max)
     chirp_mass = bilby.gw.conversion.component_masses_to_chirp_mass(mass_1, mass_2)
     mass_ratio = mass_2/mass_1
     a_1, a_2, tilt_1, tilt_2, phi_12, phi_jl = generate_random_twospins_bilbystyle(Nsample, a_max=a_max)
