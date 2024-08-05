@@ -184,6 +184,56 @@ def generate_BNS_injection_parameters(
 
     return injection_parameters_all
 
+def generate_BNS_injection_parameters_2(
+        Nsample,
+        a_max,
+        d_min,
+        d_max,
+        d_power,
+        mc_min = 1.1,
+        mc_max = 3,
+        q_min = 0.5,
+        q_max = 1,
+        tc_min=-0.1,
+        tc_max=0.1,
+        lambda_tilde_min = 0,
+        lambda_tilde_max = 1600,
+        intrinsic_only=False,
+        **kwargs):
+    chirp_mass = np.random.uniform(mc_min, mc_max, Nsample)
+    mass_ratio = np.random.uniform(q_min, q_max, Nsample)
+    mass_1, mass_2 = bilby.gw.conversion.chirp_mass_and_mass_ratio_to_component_masses(chirp_mass, mass_ratio)
+
+    a_1, a_2, tilt_1, tilt_2, phi_12, phi_jl = generate_random_twospins_bilbystyle(Nsample, a_max=a_max)
+    luminosity_distance = generate_random_distance(Nsample, low=d_min, high=d_max, power=d_power)
+    theta_jn, ra, dec, psi, phase = generate_random_extrinsic_angles(Nsample)
+    geocent_time = np.random.uniform(tc_min, tc_max, Nsample)
+
+    lambda_tilde = np.random.uniform(lambda_tilde_min, lambda_tilde_max, Nsample)
+    c1 = 16/13 * (mass_1 + 12*mass_2)*mass_1**4 / (mass_1+mass_2)**5
+    c2 = 16/13 * (mass_2 + 12*mass_1)*mass_2**4 / (mass_1+mass_2)**5
+    d1 = mass_1**4 * (1319*mass_1**2 - 7996*mass_1*mass_2 - 11005*mass_2**2) / 1319 / (mass_1+mass_2)**6 # <0
+    d2 = mass_2**4 * (-1319*mass_2**2 + 7996*mass_1*mass_2 + 11005*mass_1**2) / 1319 / (mass_1+mass_2)**6 # >0
+    delta_lambda_tilde =  np.random.uniform(d1*lambda_tilde/c1, d2*lambda_tilde/c2) # make sure lambda_1,2 > 0
+    
+    Delta = c1*d2 - c2*d1
+    lambda_1 = (d2*lambda_tilde - c2*delta_lambda_tilde) / Delta
+    lambda_2 = (-d1*lambda_tilde + c1*delta_lambda_tilde) / Delta
+
+    if intrinsic_only:
+        luminosity_distance = np.ones(Nsample)
+        geocent_time = np.zeros(Nsample)
+        ra = np.zeros(Nsample)
+        dec = np.zeros(Nsample)
+        psi = np.zeros(Nsample)
+        
+    injection_parameters_all = assemble_pBNS_parameters(mass_1, mass_2, chirp_mass, mass_ratio, 
+                                                         a_1, a_2, tilt_1, tilt_2, phi_12, phi_jl, 
+                                                         lambda_1, lambda_2, lambda_tilde, delta_lambda_tilde, 
+                                                         theta_jn, luminosity_distance, ra, dec, psi, phase, geocent_time)
+
+    return injection_parameters_all
+
 def generate_2dBNS_injection_parameters(
         Nsample,
         a_max,
