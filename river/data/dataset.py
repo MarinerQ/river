@@ -8,7 +8,7 @@ from .reparameterize import *
 from .antenna import *
 import pickle
 import random
-
+import lal
 
 
 def loadVandVh(Vhfilepath, Nbasis):
@@ -253,7 +253,7 @@ class DatasetSVDMBStrainFDFromSVDWFonGPUBatch(Dataset):
     def __init__(self, precalwf_filelist, parameter_names, data_generator, Nbasis_wf, Nbasis_det, Vhfile_dict,
                 snr_min=10, snr_max=200, tmin=-0.01, tmax=0.01, device='cuda',
                 add_noise=True, minibatch_size=1, fix_extrinsic=False, shuffle=False, reparameterizer=None,
-                scale_amp=False):
+                scale_amp=False, mc_error_width=0.):
         self.precalwf_filelist = precalwf_filelist
         self.parameter_names = parameter_names
         self.data_generator = data_generator
@@ -273,6 +273,7 @@ class DatasetSVDMBStrainFDFromSVDWFonGPUBatch(Dataset):
         self.shuffle = shuffle
         self.reparameterizer = reparameterizer
         self.scale_amp = scale_amp
+        self.mc_error_width = mc_error_width
 
         # Load V and Vh matrices and convert to tensors
         self.V_wf, self.Vh_wf = loadVandVh(Vhfile_dict['waveform'], Nbasis_wf)
@@ -339,9 +340,18 @@ class DatasetSVDMBStrainFDFromSVDWFonGPUBatch(Dataset):
         #hp_svd = hp_svd/dL
         #hc_svd = hc_svd/dL
 
-        x, injection_parameters, netsnr = self.compute_strain_tensors_batch(hp_svd, hc_svd, injection_parameters)
+        # mc_error: defined as Mc_precond - Mc_real
+        if self.mc_error_width > 0:
+            mc_error = torch.rand(self.minibatch_size, device=self.device) * 2 * self.mc_error_width - self.mc_error_width
+        else:
+            mc_error = None
+        x, injection_parameters, netsnr = self.compute_strain_tensors_batch(hp_svd, hc_svd, injection_parameters, mc_error)
         theta = self.get_theta(injection_parameters)
-        return theta.float(), torch.cat((x.real, x.imag), axis=1).float(), netsnr.float()
+
+        if mc_error is not None:
+            return theta.float(), torch.cat((x.real, x.imag), axis=1).float(), netsnr.float(), mc_error 
+        else:
+            return theta.float(), torch.cat((x.real, x.imag), axis=1).float(), netsnr.float()
 
     def get_index(self, index, sample_per_file, is_end=False):
         index_of_file = index // sample_per_file
@@ -397,7 +407,7 @@ class DatasetSVDMBStrainFDFromSVDWFonGPUBatch(Dataset):
         integral = torch.sum(integrand, axis=-1)
         return 4. * torch.real(integral)
     
-    def compute_strain_tensors_batch(self, hp_svd, hc_svd, injection_parameters):
+    def compute_strain_tensors_batch(self, hp_svd, hc_svd, injection_parameters, mc_error=None):
         num_ifos = len(self.ifos)
         x = torch.zeros((self.minibatch_size, num_ifos, self.Nbasis_det), dtype=torch.complex64, device=self.device)
         resp_dt_dict = self.compute_detector_factors_batch(injection_parameters)
@@ -410,6 +420,12 @@ class DatasetSVDMBStrainFDFromSVDWFonGPUBatch(Dataset):
         hp_reconstruct = torch.einsum('ij,jk->ik', hp_svd.type(torch.complex64), Vh_recons.type(torch.complex64))
         hc_reconstruct = torch.einsum('ij,jk->ik', hc_svd.type(torch.complex64), Vh_recons.type(torch.complex64))
         mc = injection_parameters['chirp_mass']
+
+        if mc_error is not None: # mc_error: defined as Mc_precond - Mc_real
+            mc_cond = mc + mc_error
+            p_cond = 3/128/(lal.G_SI*np.pi*mc_cond.unsqueeze(1)*lal.MSUN_SI*self.farray_mb.unsqueeze(0)/lal.C_SI**3)**(5/3)
+            p_real = 3/128/(lal.G_SI*np.pi*mc.unsqueeze(1)*lal.MSUN_SI*self.farray_mb.unsqueeze(0)/lal.C_SI**3)**(5/3)
+            hd_error = torch.exp(1j*(p_cond-p_real)).type(torch.complex64)
         for i,det in enumerate(self.ifos):
             detname = det.name
             fp, fc, dt = resp_dt_dict[detname]
@@ -418,12 +434,16 @@ class DatasetSVDMBStrainFDFromSVDWFonGPUBatch(Dataset):
             phase2add = torch.exp(-1j * 2 * np.pi * dt * self.farray_mb).type(torch.complex64)
             hh_shifted = h_reconstruct * phase2add
             
+            if mc_error is not None:
+                hh_shifted = hh_shifted * hd_error
+
             if self.scale_amp:
                 hh_dehet = hh_shifted * mc.unsqueeze(1)**(5/6) * self.farray_mb.unsqueeze(0)**(-7/6)
             else:
                 hh_dehet = hh_shifted
             #ref_snr_sq += inner_product(hh_dehet, hh_dehet, self.duration_array, self.det_aux[detname]['PSD'], torch)
             ref_snr_sq += self.inner_product(hh_dehet, hh_dehet, self.det_aux[detname]['PSD'])
+
             h_svd = torch.einsum('ij,jk->ik', hh_shifted.type(torch.complex64), self.det_aux[detname]['whitened_V'].type(torch.complex64))
             x[:,i,:] = h_svd 
 

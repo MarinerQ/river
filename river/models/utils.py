@@ -16,6 +16,28 @@ from .embedding.conv import EmbeddingConv1D, EmbeddingConv2D, MyEmbeddingConv2D,
 from .embedding.mlp import MLPResNet #EmbeddingMLP1D, ResnetMLP1D
 from .embedding.simple_vit_1d import SimpleViT
 
+LEGEND_LABEL_MAP = {'chirp_mass': r"$\mathcal{M}$",
+                   'mass_ratio': r"$q$",
+                   'a_1': r"$a_1$",
+                   'a_2': r"$a_2$",
+                   'tilt_1': r"$\theta_1$",
+                   'tilt_2': r"$\theta_2$",
+                   'phi_12': r"$\varphi_{12}$",
+                   'phi_jl': r"$\varphi_{JL}$",
+                   'lambda_tilde': r"$\tilde{\Lambda}$",
+                   'delta_lambda_tilde': r"$\delta \tilde{\Lambda}$",
+                   'theta_jn': r"$\theta_{JN}$",
+                   'luminosity_distance': r"$d_L$",
+                   'ra': r"$\alpha$",
+                   'dec': r"$\delta$",
+                   'psi': r"$\psi$",
+                   'phase': r"$\phi_c$",
+                   'geocent_time': r"$t_c$",
+                   'mass_1': r"$m_1$",
+                   'mass_2': r"$m_2$",
+                   'lambda_1': r"$\Lambda_1$",
+                   'lambda_2': r"$\Lambda_2$",}
+
 ############################################
 ########## Data Loading functions ##########
 ############################################
@@ -384,8 +406,8 @@ def make_prior(injection_parameters_list, parameter_names):
     return result
 
 def make_pp_plot(results, filename=None, save=True, confidence_interval=[0.68, 0.95, 0.997],
-                 lines=None, legend_fontsize='large', keys=None, title=True,
-                 confidence_interval_alpha=0.1, weight_list=None,
+                 lines=None, fontsize=20, keys=None, title=True,
+                 confidence_interval_alpha=0.1, weight_list=None, legend_label_map=LEGEND_LABEL_MAP,
                  **kwargs):
     """
     Make a P-P plot for a set of runs with injected signals.
@@ -417,7 +439,7 @@ def make_pp_plot(results, filename=None, save=True, confidence_interval=[0.68, 0
     x_values = np.linspace(0, 1, 1001)
 
     N = len(credible_levels)
-    fig, ax = plt.subplots(figsize=(9,6))
+    fig, ax = plt.subplots(figsize=(12,12))
 
     if isinstance(confidence_interval, float):
         confidence_interval = [confidence_interval]
@@ -446,7 +468,9 @@ def make_pp_plot(results, filename=None, save=True, confidence_interval=[0.68, 0
 
 
         name = key
-        label = "{} ({:2.3f})".format(name, pvalue)
+        label = r"{} ({:2.3f})".format(name, pvalue)
+        if legend_label_map and name in legend_label_map.keys():
+            label = label.replace(name, legend_label_map[name])
         plt.plot(x_values, pp, lines[ii], label=label, **kwargs)
 
     Pvals = namedtuple('pvals', ['combined_pvalue', 'pvalues', 'names'])
@@ -456,12 +480,13 @@ def make_pp_plot(results, filename=None, save=True, confidence_interval=[0.68, 0
 
     if title:
         ax.set_title("N={}, p-value={:2.4f}".format(
-            len(results), pvals.combined_pvalue))
-    ax.set_xlabel("C.I.")
-    ax.set_ylabel("Fraction of events in C.I.")
-    ax.legend(handlelength=2, labelspacing=0.25, fontsize=legend_fontsize, ncol=1, loc=(1.01,0.2))
+            len(results), pvals.combined_pvalue), fontsize=fontsize)
+    ax.set_xlabel("C.I.", fontsize=fontsize)
+    ax.set_ylabel("Fraction of events in C.I.", fontsize=fontsize)
+    ax.legend(handlelength=2, labelspacing=0.25, fontsize=fontsize, ncol=2, loc=(0.01,0.68))
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
+    ax.tick_params(axis='both', which='major', labelsize=fontsize)
     fig.tight_layout()
     if save:
         fig.savefig(filename)
